@@ -1,0 +1,17 @@
+.git
+.env
+.env.*
+!.env.example
+secrets
+backups
+target
+**/node_modules
+**/.svelte-kit
+frontend/build
+frontend/src/lib/generated
+frontend/openapi.json
+playwright-report
+test-results
+*.pem
+*.key
+*.dump

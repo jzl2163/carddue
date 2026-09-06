@@ -1,0 +1,12 @@
+{$APP_DOMAIN} {
+    encode zstd gzip
+    # Access logging is intentionally not enabled: calendar URLs are bearer secrets.
+    @health path /health/*
+    respond @health 404
+    reverse_proxy app:8080
+    header {
+        -Server
+        Referrer-Policy no-referrer
+        X-Content-Type-Options nosniff
+    }
+}
