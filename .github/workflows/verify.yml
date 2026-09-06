@@ -28,6 +28,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: rustup update stable --no-self-update
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('backend/Cargo.toml') }}
       - name: Compile and run Rust tests
         run: cargo test --workspace --all-targets
       - name: Export API contract
@@ -36,3 +43,36 @@ jobs:
         with:
           name: api-contract
           path: openapi.json
+          if-no-files-found: error
+  frontend:
+    needs: backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@v4
+        with:
+          name: api-contract
+          path: frontend
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm install --no-audit --no-fund
+      - name: Generate Rust-derived API types
+        working-directory: frontend
+        run: npm run api:generate
+      - name: Type check
+        working-directory: frontend
+        run: npm run check
+      - name: Frontend unit tests
+        working-directory: frontend
+        run: npm test
+      - name: Static production build
+        working-directory: frontend
+        run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: static-frontend
+          path: frontend/build
+          if-no-files-found: error
