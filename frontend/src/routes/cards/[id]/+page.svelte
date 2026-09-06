@@ -21,7 +21,7 @@
   async function resetDates(){if(!editing||!confirm('恢复这一期按卡片规则计算的日期？金额和还款标记不变。'))return;busy=editing.id;try{await api(`/cards/${page.params.id}/cycles/${editing.id}`,'PATCH',{reset_dates:true});editing=null;await load(page.params.id!);notify('已恢复规则日期。');}catch(e){showError(e);}finally{busy='';}}
   async function toggleArchive(){if(!card||!confirm(card.active?'归档这张卡？未发送提醒将停止，但历史记录保留。':'恢复这张卡并重新生成日程？'))return;busy='archive';try{await api(`/cards/${card.id}${card.active?'':'/restore'}`,card.active?'DELETE':'POST');await load(card.id);}catch(e){showError(e);}finally{busy='';}}
   function newMilestone(){milestoneId=null;milestone={card_id:page.params.id!,title:'',kind:'benefit',recurrence:'monthly',start_date:today};}
-  function editMilestone(m:Resource<MilestoneInput>){milestoneId=m.id;milestone=structuredClone(m.data);}
+  function editMilestone(m:Resource<MilestoneInput>){milestoneId=m.id;milestone=$state.snapshot(m.data);}
   async function saveMilestone(event:SubmitEvent){event.preventDefault();if(!milestone)return;busy='milestone';try{await api(`/milestones${milestoneId?'/'+milestoneId:''}`,milestoneId?'PATCH':'POST',milestone);milestone=null;notify('事项已保存。');await load(page.params.id!);}catch(e){showError(e);}finally{busy='';}}
   async function removeMilestone(id:string){if(!confirm('删除此事项及其未来提醒？'))return;try{await api(`/milestones/${id}`,'DELETE');await load(page.params.id!);}catch(e){showError(e);}}
 </script>

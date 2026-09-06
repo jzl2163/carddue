@@ -9,7 +9,7 @@
   const variables=['card.name','card.issuer','card.last4','card.currency','event.type','event.label','event.date','event.days_until','cycle.statement_date','cycle.due_date','cycle.amount','cycle.minimum_payment','user.timezone','app.url'];
   async function load(){try{[rows,connections]=await Promise.all([api<Resource<TemplateInput>[]>('/notification/templates'),api<Connection[]>('/notification/connections')]);}catch(e){error=e instanceof Error?e.message:'读取失败';}}
   onMount(()=>{void load();});
-  function open(row?:Resource<TemplateInput>){id=row?.id||null;edit=structuredClone(row?.data||defaultTemplate());preview=null;}
+  function open(row?:Resource<TemplateInput>){id=row?.id||null;edit=$state.snapshot(row?.data||defaultTemplate());preview=null;}
   async function validate(){if(!edit)return;busy=true;try{preview=await api<Rendered>('/notification/templates/preview','POST',edit);notify('语法与示例数据验证通过。实际发送时仍会按当期数据渲染。');}catch(e){preview=null;showError(e);}finally{busy=false;}}
   async function save(event:SubmitEvent){event.preventDefault();if(!edit)return;busy=true;try{const result=await api<{id:string}>(`/notification/templates${id?'/'+id:''}`,id?'PATCH':'POST',edit);id=result.id;await load();notify('模板已保存。未发送任务将使用更新后的模板。');}catch(e){showError(e);}finally{busy=false;}}
   async function remove(row:Resource<TemplateInput>){if(!confirm(`删除模板“${row.data.name}”？正在被规则引用的模板不能删除。`))return;try{await api(`/notification/templates/${row.id}`,'DELETE');if(id===row.id){edit=null;id=null;}await load();}catch(e){showError(e);}}

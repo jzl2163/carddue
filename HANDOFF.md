@@ -19,3 +19,6 @@ sh scripts/verify-docker.sh
 - 更完整地审查出站地址、并发与安全边界；现有通过用例不等于覆盖全部攻击场景。
 
 本轮实际执行结果以 docs/verification.md 为准。尚未配置生产域名，也未向真实设备或邮箱发送通知。
+
+## 后续浏览器实测
+已在 Oracle 保持 carddue-browser 测试服务运行，并从本机 Chrome 经 SSH 隧道完成核心交互。修复五处响应式对象复制导致编辑器打不开的问题。详情及清理命令见 docs/browser-validation.md。该记录补充之前的 HTTP 验收，不表示全流程浏览器自动化已完成。

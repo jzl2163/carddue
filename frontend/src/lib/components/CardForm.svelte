@@ -4,7 +4,7 @@
   import { defaultCard } from '$lib/defaults';
   import Button from './ui/button/Button.svelte';
   let { initial, onsave, cancelHref = '/cards' }: { initial?: CardInput; onsave: (card: CardInput) => Promise<void>; cancelHref?: string } = $props();
-  let card = $state<CardInput>(untrack(() => structuredClone(initial || defaultCard())));
+  let card = $state<CardInput>(untrack(() => $state.snapshot(initial || defaultCard())));
   let annual = $state(untrack(() => Boolean(initial?.annual_fee_month)));
   let busy = $state(false), error = $state('');
   async function submit(event: SubmitEvent) {
