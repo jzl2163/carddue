@@ -1,0 +1,68 @@
+name: Bootstrap dependency locks and formatting
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/bootstrap-locks.yml]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: bootstrap-main
+  cancel-in-progress: false
+jobs:
+  prepare:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: rustup update stable --no-self-update
+      - name: Apply reviewed initial source corrections
+        shell: python
+        run: |
+          from pathlib import Path
+          import json, re
+          # Svelte parses braces in quoted HTML attributes. Preserve regular expressions
+          # as JavaScript string expressions instead of accidental template expressions.
+          for path in Path('frontend/src').rglob('*.svelte'):
+              original = path.read_text()
+              updated = re.sub(r'pattern="([^"]*)"', lambda m: 'pattern={' + json.dumps(m.group(1)) + '}', original)
+              if updated != original:
+                  path.write_text(updated)
+          path = Path('frontend/src/routes/+page.svelte')
+          original = path.read_text()
+          if 'const today=$derived' not in original:
+              marker = '  const due=$derived'
+              assert original.count(marker) == 1
+              updated = original.replace('data.today', 'today')
+              updated = updated.replace(marker, "  const today=$derived(data?.today || '');\n" + marker)
+              path.write_text(updated)
+          path = Path('backend/src/auth.rs')
+          original = path.read_text()
+          old = 'audit(&mut conn,user.id,"login",None).await?;\n    session_response(&s,user).await'
+          new = 'audit(&mut conn,user.id,"login",None).await?;\n    drop(conn);\n    session_response(&s,user).await'
+          if old in original:
+              assert original.count(old) == 1
+              path.write_text(original.replace(old, new))
+      - name: Resolve real dependency locks without running npm lifecycle scripts
+        run: |
+          cargo generate-lockfile
+          npm --prefix frontend install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - name: Format Rust source
+        run: cargo fmt --all
+      - name: Commit generated locks and reviewed corrections
+        run: |
+          git config user.name 'carddue-maintenance[bot]'
+          git config user.email 'carddue-maintenance@users.noreply.github.com'
+          git add Cargo.lock frontend/package-lock.json backend frontend/src
+          if git diff --cached --quiet; then
+            echo 'No generated changes'
+            exit 0
+          fi
+          git commit -m 'build: lock dependencies, format Rust and correct Svelte form expressions'
+          # No force push: concurrent repository changes cause a safe failure.
+          git push origin HEAD:main
