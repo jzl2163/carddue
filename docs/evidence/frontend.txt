@@ -1,0 +1,24 @@
+svelte-check found 0 errors and 0 warnings
+
+> carddue-frontend@0.1.0 test
+> vitest run
+
+
+ RUN  v3.2.7 /work/frontend
+
+ ✓ src/lib/utils.test.ts (2 tests) 4ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  03:09:56
+   Duration  680ms (transform 110ms, setup 0ms, collect 88ms, tests 4ms, environment 0ms, prepare 174ms)
+
+{
+  "scope": "all static routes, individually gzipped",
+  "javascript_bytes": 98824,
+  "css_bytes": 4996,
+  "limits": {
+    "javascript": 204800,
+    "css": 51200
+  }
+}

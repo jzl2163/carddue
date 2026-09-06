@@ -16,6 +16,16 @@ PostgreSQL 持久通知队列，租约与并发领取，失败重试、已还款
 
 不包含银行连接、消费流水同步、自动还款、信用评分、账单 OCR 或财务建议。
 
+## 在服务器容器中验证
+
+只需服务器已有 Git、Docker 和 Compose，无须在本机或服务器主机安装 Rust/Node：
+
+```sh
+sh scripts/verify-docker.sh
+```
+
+验证使用独立临时 PostgreSQL，执行锁定依赖的 Rust 格式检查、clippy、测试、API 导出，以及前端类型检查、测试、构建和资源预算。退出时清理测试容器。缓存清理见 [部署与运维](docs/operations-guide-zh.md)。
+
 ## 本机试用
 
 准备 Git、Docker Engine / Compose 和用于生成私密配置的 Node.js 22.12 或更新版本。

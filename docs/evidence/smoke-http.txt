@@ -1,0 +1,11 @@
+PASS /health/live
+PASS /health/ready
+PASS /
+PASS /login
+PASS /cards
+PASS administrator setup and session cookie
+PASS create and list card
+PASS private ICS feed
+No notification connections created or real messages sent.
+PostgreSQL migrations: 1=true, 2=true
+Docker health: healthy

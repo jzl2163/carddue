@@ -1,0 +1,35 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 47s
+     Running unittests src/lib.rs (target/debug/deps/carddue-0439f0217796b298)
+
+running 10 tests
+test crypto::tests::signatures_are_domain_separated ... ok
+test dates::tests::clamp_and_rollover ... ok
+test dates::tests::dst_gap_and_overlap ... ok
+test network::tests::block_reserved_and_metadata ... ok
+test crypto::tests::authenticated_encryption_rejects_substitution ... ok
+test calendar::tests::unicode_folding_and_escape ... ok
+test web::tests::ambiguous_security_headers_are_rejected ... ok
+test calendar::tests::all_day_event_and_stable_uid ... ok
+test template::tests::errors_and_output_limits ... ok
+test template::tests::default_template_and_escaping ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/main.rs (target/debug/deps/carddue-ebce38bb34c54798)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/integration.rs (target/debug/deps/integration-b5036eaff66c94ba)
+
+running 6 tests
+test initialization_is_atomic ... ok
+test encrypted_connection_real_mock_delivery_and_retry ... ok
+test calendar_privacy_stable_uid_etag_and_rotation ... ok
+test auth_csrf_and_tenant_isolation ... ok
+test paid_cancels_claimed_jobs_before_send ... ok
+test invalid_recurrence_templates_and_cross_tenant_references ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.65s
+

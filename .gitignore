@@ -15,3 +15,7 @@
 *.key
 *.dump
 .DS_Store
+
+# Local verification artifacts
+/*.log
+/frontend/openapi.json
