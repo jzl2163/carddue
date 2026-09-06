@@ -1,124 +1,367 @@
-use crate::{AppState, auth::{Auth, audit, lock_user}, error::{AppError, Result}, model::{CardInput, CardView, CyclePatch, CycleView, MilestoneInput, money, date_range, text}, planner, web::ApiJson};
-use axum::{extract::{Path, State}, Json};
+use crate::{
+    AppState,
+    auth::{Auth, audit, lock_user},
+    error::{AppError, Result},
+    model::{CardInput, CardView, CyclePatch, CycleView, MilestoneInput, date_range, money, text},
+    planner,
+    web::ApiJson,
+};
+use axum::{
+    Json,
+    extract::{Path, State},
+};
 use serde_json::{Value, json};
 use sqlx::{PgConnection, Row};
 use uuid::Uuid;
 
 pub async fn list(State(s): State<AppState>, auth: Auth) -> Result<Json<Vec<CardView>>> {
-    let rows = sqlx::query("SELECT id,data,active FROM cards WHERE user_id=$1 ORDER BY active DESC,created_at DESC").bind(auth.user.id).fetch_all(&s.db).await?;
-    let mut result=Vec::new();
-    for r in rows { result.push(CardView {id:r.try_get("id")?,data:serde_json::from_value(r.try_get("data")?)?,active:r.try_get("active")?}); }
+    let rows = sqlx::query(
+        "SELECT id,data,active FROM cards WHERE user_id=$1 ORDER BY active DESC,created_at DESC",
+    )
+    .bind(auth.user.id)
+    .fetch_all(&s.db)
+    .await?;
+    let mut result = Vec::new();
+    for r in rows {
+        result.push(CardView {
+            id: r.try_get("id")?,
+            data: serde_json::from_value(r.try_get("data")?)?,
+            active: r.try_get("active")?,
+        });
+    }
     Ok(Json(result))
 }
-pub async fn get(State(s): State<AppState>, auth: Auth, Path(id): Path<Uuid>) -> Result<Json<CardView>> {
-    let r=sqlx::query("SELECT id,data,active FROM cards WHERE user_id=$1 AND id=$2").bind(auth.user.id).bind(id).fetch_one(&s.db).await?;
-    Ok(Json(CardView {id:r.try_get("id")?,data:serde_json::from_value(r.try_get("data")?)?,active:r.try_get("active")?}))
+pub async fn get(
+    State(s): State<AppState>,
+    auth: Auth,
+    Path(id): Path<Uuid>,
+) -> Result<Json<CardView>> {
+    let r = sqlx::query("SELECT id,data,active FROM cards WHERE user_id=$1 AND id=$2")
+        .bind(auth.user.id)
+        .bind(id)
+        .fetch_one(&s.db)
+        .await?;
+    Ok(Json(CardView {
+        id: r.try_get("id")?,
+        data: serde_json::from_value(r.try_get("data")?)?,
+        active: r.try_get("active")?,
+    }))
 }
-pub async fn create(State(s): State<AppState>, auth: Auth, ApiJson(c): ApiJson<CardInput>) -> Result<Json<Value>> {
+pub async fn create(
+    State(s): State<AppState>,
+    auth: Auth,
+    ApiJson(c): ApiJson<CardInput>,
+) -> Result<Json<Value>> {
     c.validate()?;
-    let mut tx=s.db.begin().await?; lock_user(&mut tx,auth.user.id).await?;
-    let count:i64=sqlx::query_scalar("SELECT count(*) FROM cards WHERE user_id=$1").bind(auth.user.id).fetch_one(&mut *tx).await?;
-    if count>=200 {return Err(AppError::bad("Card limit reached (200 including archived cards)"));}
-    let id=Uuid::new_v4();
-    sqlx::query("INSERT INTO cards(id,user_id,data) VALUES($1,$2,$3)").bind(id).bind(auth.user.id).bind(json!(c)).execute(&mut *tx).await?;
-    planner::reconcile(&mut tx,auth.user.id,&s.config).await?;
-    audit(&mut tx,auth.user.id,"card_created",Some(id)).await?; tx.commit().await?;
+    let mut tx = s.db.begin().await?;
+    lock_user(&mut tx, auth.user.id).await?;
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM cards WHERE user_id=$1")
+        .bind(auth.user.id)
+        .fetch_one(&mut *tx)
+        .await?;
+    if count >= 200 {
+        return Err(AppError::bad(
+            "Card limit reached (200 including archived cards)",
+        ));
+    }
+    let id = Uuid::new_v4();
+    sqlx::query("INSERT INTO cards(id,user_id,data) VALUES($1,$2,$3)")
+        .bind(id)
+        .bind(auth.user.id)
+        .bind(json!(c))
+        .execute(&mut *tx)
+        .await?;
+    planner::reconcile(&mut tx, auth.user.id, &s.config).await?;
+    audit(&mut tx, auth.user.id, "card_created", Some(id)).await?;
+    tx.commit().await?;
     Ok(Json(json!({"id":id})))
 }
-pub async fn update(State(s): State<AppState>, auth: Auth, Path(id): Path<Uuid>, ApiJson(c): ApiJson<CardInput>) -> Result<Json<Value>> {
+pub async fn update(
+    State(s): State<AppState>,
+    auth: Auth,
+    Path(id): Path<Uuid>,
+    ApiJson(c): ApiJson<CardInput>,
+) -> Result<Json<Value>> {
     c.validate()?;
-    let mut tx=s.db.begin().await?; lock_user(&mut tx,auth.user.id).await?;
-    let r=sqlx::query("UPDATE cards SET data=$1,updated_at=now() WHERE id=$2 AND user_id=$3").bind(json!(c)).bind(id).bind(auth.user.id).execute(&mut *tx).await?;
-    if r.rows_affected()!=1 {return Err(AppError::missing());}
+    let mut tx = s.db.begin().await?;
+    lock_user(&mut tx, auth.user.id).await?;
+    let r = sqlx::query("UPDATE cards SET data=$1,updated_at=now() WHERE id=$2 AND user_id=$3")
+        .bind(json!(c))
+        .bind(id)
+        .bind(auth.user.id)
+        .execute(&mut *tx)
+        .await?;
+    if r.rows_affected() != 1 {
+        return Err(AppError::missing());
+    }
     sqlx::query("UPDATE calendar_events SET revision=revision+1,updated_at=now() WHERE card_id=$1 AND user_id=$2").bind(id).bind(auth.user.id).execute(&mut *tx).await?;
-    planner::reconcile(&mut tx,auth.user.id,&s.config).await?;
-    audit(&mut tx,auth.user.id,"card_updated",Some(id)).await?; tx.commit().await?;
+    planner::reconcile(&mut tx, auth.user.id, &s.config).await?;
+    audit(&mut tx, auth.user.id, "card_updated", Some(id)).await?;
+    tx.commit().await?;
     Ok(Json(json!({"ok":true})))
 }
-async fn set_active(s:AppState, auth:Auth, id:Uuid, active:bool) -> Result<Json<Value>> {
-    let mut tx=s.db.begin().await?; lock_user(&mut tx,auth.user.id).await?;
-    let r=sqlx::query("UPDATE cards SET active=$1,updated_at=now() WHERE id=$2 AND user_id=$3").bind(active).bind(id).bind(auth.user.id).execute(&mut *tx).await?;
-    if r.rows_affected()!=1 {return Err(AppError::missing());}
-    planner::reconcile(&mut tx,auth.user.id,&s.config).await?;
-    audit(&mut tx,auth.user.id,if active{"card_restored"}else{"card_archived"},Some(id)).await?; tx.commit().await?;
+async fn set_active(s: AppState, auth: Auth, id: Uuid, active: bool) -> Result<Json<Value>> {
+    let mut tx = s.db.begin().await?;
+    lock_user(&mut tx, auth.user.id).await?;
+    let r = sqlx::query("UPDATE cards SET active=$1,updated_at=now() WHERE id=$2 AND user_id=$3")
+        .bind(active)
+        .bind(id)
+        .bind(auth.user.id)
+        .execute(&mut *tx)
+        .await?;
+    if r.rows_affected() != 1 {
+        return Err(AppError::missing());
+    }
+    planner::reconcile(&mut tx, auth.user.id, &s.config).await?;
+    audit(
+        &mut tx,
+        auth.user.id,
+        if active {
+            "card_restored"
+        } else {
+            "card_archived"
+        },
+        Some(id),
+    )
+    .await?;
+    tx.commit().await?;
     Ok(Json(json!({"ok":true})))
 }
-pub async fn archive(State(s):State<AppState>,auth:Auth,Path(id):Path<Uuid>) -> Result<Json<Value>> {set_active(s,auth,id,false).await}
-pub async fn restore(State(s):State<AppState>,auth:Auth,Path(id):Path<Uuid>) -> Result<Json<Value>> {set_active(s,auth,id,true).await}
-pub async fn cycles(State(s):State<AppState>,auth:Auth,Path(card):Path<Uuid>) -> Result<Json<Vec<CycleView>>> {
-    let exists:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM cards WHERE id=$1 AND user_id=$2)").bind(card).bind(auth.user.id).fetch_one(&s.db).await?;
-    if !exists {return Err(AppError::missing());}
-    Ok(Json(sqlx::query_as::<_,CycleView>(planner::CYCLES).bind(auth.user.id).bind(card).fetch_all(&s.db).await?))
+pub async fn archive(
+    State(s): State<AppState>,
+    auth: Auth,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Value>> {
+    set_active(s, auth, id, false).await
 }
-pub async fn patch_cycle(State(s):State<AppState>,auth:Auth,Path((card,cycle)):Path<(Uuid,Uuid)>,ApiJson(p):ApiJson<CyclePatch>) -> Result<Json<Value>> {
-    money(p.amount.as_deref())?; money(p.minimum_payment.as_deref())?;
-    if let Some(d)=p.statement_date {date_range(d)?;} if let Some(d)=p.due_date {date_range(d)?;}
-    if let Some(n)=&p.note {text(n,0,4000)?;}
-    if p.reset_dates && (p.statement_date.is_some() || p.due_date.is_some()) {return Err(AppError::bad("Do not combine reset_dates and explicit dates"));}
-    let mut tx=s.db.begin().await?; lock_user(&mut tx,auth.user.id).await?;
+pub async fn restore(
+    State(s): State<AppState>,
+    auth: Auth,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Value>> {
+    set_active(s, auth, id, true).await
+}
+pub async fn cycles(
+    State(s): State<AppState>,
+    auth: Auth,
+    Path(card): Path<Uuid>,
+) -> Result<Json<Vec<CycleView>>> {
+    let exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM cards WHERE id=$1 AND user_id=$2)")
+            .bind(card)
+            .bind(auth.user.id)
+            .fetch_one(&s.db)
+            .await?;
+    if !exists {
+        return Err(AppError::missing());
+    }
+    Ok(Json(
+        sqlx::query_as::<_, CycleView>(planner::CYCLES)
+            .bind(auth.user.id)
+            .bind(card)
+            .fetch_all(&s.db)
+            .await?,
+    ))
+}
+pub async fn patch_cycle(
+    State(s): State<AppState>,
+    auth: Auth,
+    Path((card, cycle)): Path<(Uuid, Uuid)>,
+    ApiJson(p): ApiJson<CyclePatch>,
+) -> Result<Json<Value>> {
+    money(p.amount.as_deref())?;
+    money(p.minimum_payment.as_deref())?;
+    if let Some(d) = p.statement_date {
+        date_range(d)?;
+    }
+    if let Some(d) = p.due_date {
+        date_range(d)?;
+    }
+    if let Some(n) = &p.note {
+        text(n, 0, 4000)?;
+    }
+    if p.reset_dates && (p.statement_date.is_some() || p.due_date.is_some()) {
+        return Err(AppError::bad(
+            "Do not combine reset_dates and explicit dates",
+        ));
+    }
+    let mut tx = s.db.begin().await?;
+    lock_user(&mut tx, auth.user.id).await?;
     let row=sqlx::query("SELECT c.data,cy.cycle_month,cy.statement_date,cy.due_date,cy.statement_overridden,cy.due_overridden FROM card_cycles cy JOIN cards c ON c.id=cy.card_id WHERE cy.id=$1 AND cy.card_id=$2 AND cy.user_id=$3")
         .bind(cycle).bind(card).bind(auth.user.id).fetch_one(&mut *tx).await?;
-    let c:CardInput=serde_json::from_value(row.try_get("data")?)?;
-    let month=row.try_get("cycle_month")?;
-    let mut statement=p.statement_date.unwrap_or(row.try_get("statement_date")?);
-    let mut due=p.due_date.unwrap_or(row.try_get("due_date")?);
-    let mut so=p.statement_date.is_some() || row.try_get::<bool,_>("statement_overridden")?;
-    let mut do_=p.due_date.is_some() || row.try_get::<bool,_>("due_overridden")?;
-    if p.reset_dates { (statement,due)=crate::dates::cycle_dates(&c,month)?;so=false;do_=false; }
-    else if p.statement_date.is_some() && !do_ {due=crate::dates::due_for_statement(&c,month,statement)?;}
-    if due<statement {return Err(AppError::bad("Due date cannot precede statement date"));}
+    let c: CardInput = serde_json::from_value(row.try_get("data")?)?;
+    let month = row.try_get("cycle_month")?;
+    let mut statement = p.statement_date.unwrap_or(row.try_get("statement_date")?);
+    let mut due = p.due_date.unwrap_or(row.try_get("due_date")?);
+    let mut so = p.statement_date.is_some() || row.try_get::<bool, _>("statement_overridden")?;
+    let mut do_ = p.due_date.is_some() || row.try_get::<bool, _>("due_overridden")?;
+    if p.reset_dates {
+        (statement, due) = crate::dates::cycle_dates(&c, month)?;
+        so = false;
+        do_ = false;
+    } else if p.statement_date.is_some() && !do_ {
+        due = crate::dates::due_for_statement(&c, month, statement)?;
+    }
+    if due < statement {
+        return Err(AppError::bad("Due date cannot precede statement date"));
+    }
     sqlx::query("UPDATE card_cycles SET statement_date=$1,due_date=$2,statement_overridden=$3,due_overridden=$4,amount=CASE WHEN $5 THEN NULL ELSE COALESCE(($6::text)::numeric,amount) END,minimum_payment=CASE WHEN $7 THEN NULL ELSE COALESCE(($8::text)::numeric,minimum_payment) END,note=COALESCE($9,note),revision=revision+1,updated_at=now() WHERE id=$10 AND user_id=$11")
         .bind(statement).bind(due).bind(so).bind(do_).bind(p.clear_amount).bind(&p.amount).bind(p.clear_minimum_payment).bind(&p.minimum_payment).bind(&p.note).bind(cycle).bind(auth.user.id).execute(&mut *tx).await?;
-    planner::reconcile(&mut tx,auth.user.id,&s.config).await?;
-    audit(&mut tx,auth.user.id,"cycle_overridden",Some(cycle)).await?;tx.commit().await?;
+    planner::reconcile(&mut tx, auth.user.id, &s.config).await?;
+    audit(&mut tx, auth.user.id, "cycle_overridden", Some(cycle)).await?;
+    tx.commit().await?;
     Ok(Json(json!({"ok":true})))
 }
-async fn payment(s:AppState,auth:Auth,card:Uuid,cycle:Uuid,paid:bool) -> Result<Json<Value>> {
-    let mut tx=s.db.begin().await?;lock_user(&mut tx,auth.user.id).await?;
+async fn payment(
+    s: AppState,
+    auth: Auth,
+    card: Uuid,
+    cycle: Uuid,
+    paid: bool,
+) -> Result<Json<Value>> {
+    let mut tx = s.db.begin().await?;
+    lock_user(&mut tx, auth.user.id).await?;
     let r=sqlx::query("UPDATE card_cycles SET paid_at=CASE WHEN $1 THEN COALESCE(paid_at,now()) ELSE NULL END,revision=revision+1,updated_at=now() WHERE id=$2 AND card_id=$3 AND user_id=$4")
         .bind(paid).bind(cycle).bind(card).bind(auth.user.id).execute(&mut *tx).await?;
-    if r.rows_affected()!=1 {return Err(AppError::missing());}
-    planner::reconcile(&mut tx,auth.user.id,&s.config).await?;
-    audit(&mut tx,auth.user.id,if paid{"marked_paid"}else{"unmarked_paid"},Some(cycle)).await?;tx.commit().await?;
+    if r.rows_affected() != 1 {
+        return Err(AppError::missing());
+    }
+    planner::reconcile(&mut tx, auth.user.id, &s.config).await?;
+    audit(
+        &mut tx,
+        auth.user.id,
+        if paid { "marked_paid" } else { "unmarked_paid" },
+        Some(cycle),
+    )
+    .await?;
+    tx.commit().await?;
     Ok(Json(json!({"ok":true})))
 }
-pub async fn pay(State(s):State<AppState>,auth:Auth,Path((card,cycle)):Path<(Uuid,Uuid)>) -> Result<Json<Value>> {payment(s,auth,card,cycle,true).await}
-pub async fn unpay(State(s):State<AppState>,auth:Auth,Path((card,cycle)):Path<(Uuid,Uuid)>) -> Result<Json<Value>> {payment(s,auth,card,cycle,false).await}
-pub async fn dashboard(State(s):State<AppState>,auth:Auth) -> Result<Json<Value>> {
-    let tz:chrono_tz::Tz=auth.user.timezone.parse().map_err(|_| AppError::internal())?;
-    let today=chrono::Utc::now().with_timezone(&tz).date_naive();
+pub async fn pay(
+    State(s): State<AppState>,
+    auth: Auth,
+    Path((card, cycle)): Path<(Uuid, Uuid)>,
+) -> Result<Json<Value>> {
+    payment(s, auth, card, cycle, true).await
+}
+pub async fn unpay(
+    State(s): State<AppState>,
+    auth: Auth,
+    Path((card, cycle)): Path<(Uuid, Uuid)>,
+) -> Result<Json<Value>> {
+    payment(s, auth, card, cycle, false).await
+}
+pub async fn dashboard(State(s): State<AppState>, auth: Auth) -> Result<Json<Value>> {
+    let tz: chrono_tz::Tz = auth
+        .user
+        .timezone
+        .parse()
+        .map_err(|_| AppError::internal())?;
+    let today = chrono::Utc::now().with_timezone(&tz).date_naive();
     let rows=sqlx::query("SELECT e.id,e.card_id,e.cycle_id,e.kind,e.title,e.event_date,e.paid,c.data->>'name' AS card_name,c.data->>'color' AS color,cy.amount::text AS amount FROM calendar_events e JOIN cards c ON c.id=e.card_id LEFT JOIN card_cycles cy ON cy.id=e.cycle_id WHERE e.user_id=$1 AND e.active=true AND e.event_date BETWEEN $2 AND $3 ORDER BY e.event_date,e.kind LIMIT 500")
         .bind(auth.user.id).bind(today-chrono::Duration::days(30)).bind(today+chrono::Duration::days(90)).fetch_all(&s.db).await?;
-    let mut events=Vec::new();
-    for r in rows {events.push(json!({"id":r.try_get::<Uuid,_>("id")?,"card_id":r.try_get::<Uuid,_>("card_id")?,"cycle_id":r.try_get::<Option<Uuid>,_>("cycle_id")?,"kind":r.try_get::<String,_>("kind")?,"title":r.try_get::<String,_>("title")?,"date":r.try_get::<chrono::NaiveDate,_>("event_date")?,"paid":r.try_get::<bool,_>("paid")?,"card_name":r.try_get::<String,_>("card_name")?,"color":r.try_get::<String,_>("color")?,"amount":r.try_get::<Option<String>,_>("amount")?}));}
-    Ok(Json(json!({"today":today,"timezone":auth.user.timezone,"events":events})))
+    let mut events = Vec::new();
+    for r in rows {
+        events.push(json!({"id":r.try_get::<Uuid,_>("id")?,"card_id":r.try_get::<Uuid,_>("card_id")?,"cycle_id":r.try_get::<Option<Uuid>,_>("cycle_id")?,"kind":r.try_get::<String,_>("kind")?,"title":r.try_get::<String,_>("title")?,"date":r.try_get::<chrono::NaiveDate,_>("event_date")?,"paid":r.try_get::<bool,_>("paid")?,"card_name":r.try_get::<String,_>("card_name")?,"color":r.try_get::<String,_>("color")?,"amount":r.try_get::<Option<String>,_>("amount")?}));
+    }
+    Ok(Json(
+        json!({"today":today,"timezone":auth.user.timezone,"events":events}),
+    ))
 }
-pub async fn milestones(State(s):State<AppState>,auth:Auth) -> Result<Json<Value>> {
-    let rows=sqlx::query("SELECT id,data FROM card_milestones WHERE user_id=$1 ORDER BY updated_at DESC").bind(auth.user.id).fetch_all(&s.db).await?;
-    let mut out=Vec::new();for r in rows {out.push(json!({"id":r.try_get::<Uuid,_>("id")?,"data":r.try_get::<Value,_>("data")?}));} Ok(Json(json!(out)))
+pub async fn milestones(State(s): State<AppState>, auth: Auth) -> Result<Json<Value>> {
+    let rows = sqlx::query(
+        "SELECT id,data FROM card_milestones WHERE user_id=$1 ORDER BY updated_at DESC",
+    )
+    .bind(auth.user.id)
+    .fetch_all(&s.db)
+    .await?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(json!({"id":r.try_get::<Uuid,_>("id")?,"data":r.try_get::<Value,_>("data")?}));
+    }
+    Ok(Json(json!(out)))
 }
-pub async fn owned_cards(conn:&mut PgConnection,user:Uuid,ids:&[Uuid]) -> Result<()> {
-    let count:i64=sqlx::query_scalar("SELECT count(*) FROM cards WHERE user_id=$1 AND id=ANY($2)").bind(user).bind(ids).fetch_one(conn).await?;
-    if count as usize != ids.iter().collect::<std::collections::HashSet<_>>().len() {return Err(AppError::missing());} Ok(())
+pub async fn owned_cards(conn: &mut PgConnection, user: Uuid, ids: &[Uuid]) -> Result<()> {
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM cards WHERE user_id=$1 AND id=ANY($2)")
+            .bind(user)
+            .bind(ids)
+            .fetch_one(conn)
+            .await?;
+    if count as usize != ids.iter().collect::<std::collections::HashSet<_>>().len() {
+        return Err(AppError::missing());
+    }
+    Ok(())
 }
-async fn save_milestone(s:AppState,auth:Auth,id:Option<Uuid>,m:MilestoneInput) -> Result<Json<Value>> {
-    m.validate()?;let mut tx=s.db.begin().await?;lock_user(&mut tx,auth.user.id).await?;owned_cards(&mut tx,auth.user.id,&[m.card_id]).await?;
-    let key=id.unwrap_or_else(Uuid::new_v4);
+async fn save_milestone(
+    s: AppState,
+    auth: Auth,
+    id: Option<Uuid>,
+    m: MilestoneInput,
+) -> Result<Json<Value>> {
+    m.validate()?;
+    let mut tx = s.db.begin().await?;
+    lock_user(&mut tx, auth.user.id).await?;
+    owned_cards(&mut tx, auth.user.id, &[m.card_id]).await?;
+    let key = id.unwrap_or_else(Uuid::new_v4);
     if id.is_some() {
         let r=sqlx::query("UPDATE card_milestones SET data=$1,card_id=$2,updated_at=now() WHERE id=$3 AND user_id=$4").bind(json!(m)).bind(m.card_id).bind(key).bind(auth.user.id).execute(&mut *tx).await?;
-        if r.rows_affected()!=1 {return Err(AppError::missing());}
+        if r.rows_affected() != 1 {
+            return Err(AppError::missing());
+        }
     } else {
-        let n:i64=sqlx::query_scalar("SELECT count(*) FROM card_milestones WHERE user_id=$1").bind(auth.user.id).fetch_one(&mut *tx).await?;
-        if n>=400 {return Err(AppError::bad("Milestone limit reached"));}
-        sqlx::query("INSERT INTO card_milestones(id,user_id,card_id,data) VALUES($1,$2,$3,$4)").bind(key).bind(auth.user.id).bind(m.card_id).bind(json!(m)).execute(&mut *tx).await?;
+        let n: i64 = sqlx::query_scalar("SELECT count(*) FROM card_milestones WHERE user_id=$1")
+            .bind(auth.user.id)
+            .fetch_one(&mut *tx)
+            .await?;
+        if n >= 400 {
+            return Err(AppError::bad("Milestone limit reached"));
+        }
+        sqlx::query("INSERT INTO card_milestones(id,user_id,card_id,data) VALUES($1,$2,$3,$4)")
+            .bind(key)
+            .bind(auth.user.id)
+            .bind(m.card_id)
+            .bind(json!(m))
+            .execute(&mut *tx)
+            .await?;
     }
-    planner::reconcile(&mut tx,auth.user.id,&s.config).await?;audit(&mut tx,auth.user.id,"milestone_saved",Some(key)).await?;tx.commit().await?;Ok(Json(json!({"id":key})))
+    planner::reconcile(&mut tx, auth.user.id, &s.config).await?;
+    audit(&mut tx, auth.user.id, "milestone_saved", Some(key)).await?;
+    tx.commit().await?;
+    Ok(Json(json!({"id":key})))
 }
-pub async fn create_milestone(State(s):State<AppState>,auth:Auth,ApiJson(m):ApiJson<MilestoneInput>) -> Result<Json<Value>> {save_milestone(s,auth,None,m).await}
-pub async fn update_milestone(State(s):State<AppState>,auth:Auth,Path(id):Path<Uuid>,ApiJson(m):ApiJson<MilestoneInput>) -> Result<Json<Value>> {save_milestone(s,auth,Some(id),m).await}
-pub async fn delete_milestone(State(s):State<AppState>,auth:Auth,Path(id):Path<Uuid>) -> Result<Json<Value>> {
-    let mut tx=s.db.begin().await?;lock_user(&mut tx,auth.user.id).await?;
-    let r=sqlx::query("DELETE FROM card_milestones WHERE id=$1 AND user_id=$2").bind(id).bind(auth.user.id).execute(&mut *tx).await?;
-    if r.rows_affected()!=1 {return Err(AppError::missing());}
-    planner::reconcile(&mut tx,auth.user.id,&s.config).await?;audit(&mut tx,auth.user.id,"milestone_deleted",Some(id)).await?;tx.commit().await?;Ok(Json(json!({"ok":true})))
+pub async fn create_milestone(
+    State(s): State<AppState>,
+    auth: Auth,
+    ApiJson(m): ApiJson<MilestoneInput>,
+) -> Result<Json<Value>> {
+    save_milestone(s, auth, None, m).await
+}
+pub async fn update_milestone(
+    State(s): State<AppState>,
+    auth: Auth,
+    Path(id): Path<Uuid>,
+    ApiJson(m): ApiJson<MilestoneInput>,
+) -> Result<Json<Value>> {
+    save_milestone(s, auth, Some(id), m).await
+}
+pub async fn delete_milestone(
+    State(s): State<AppState>,
+    auth: Auth,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Value>> {
+    let mut tx = s.db.begin().await?;
+    lock_user(&mut tx, auth.user.id).await?;
+    let r = sqlx::query("DELETE FROM card_milestones WHERE id=$1 AND user_id=$2")
+        .bind(id)
+        .bind(auth.user.id)
+        .execute(&mut *tx)
+        .await?;
+    if r.rows_affected() != 1 {
+        return Err(AppError::missing());
+    }
+    planner::reconcile(&mut tx, auth.user.id, &s.config).await?;
+    audit(&mut tx, auth.user.id, "milestone_deleted", Some(id)).await?;
+    tx.commit().await?;
+    Ok(Json(json!({"ok":true})))
 }

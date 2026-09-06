@@ -20,8 +20,8 @@
     <label class="full">卡片名称<input bind:value={card.name} required maxlength="100" placeholder="例如：招商 Visa 日常卡" /></label>
     <label>发卡行<input bind:value={card.issuer} maxlength="100" placeholder="招商银行" /></label>
     <label>卡组织<input bind:value={card.network} maxlength="40" placeholder="Visa / Mastercard / 银联" /></label>
-    <label>卡号尾四位<input bind:value={card.last4} inputmode="numeric" pattern="[0-9]{4}|" maxlength="4" autocomplete="off" placeholder="1234" /><small>可留空；不要输入完整卡号。</small></label>
-    <label>币种<input bind:value={card.currency} required pattern="[A-Z]{3}" maxlength="3" placeholder="CNY" /></label>
+    <label>卡号尾四位<input bind:value={card.last4} inputmode="numeric" pattern={"[0-9]{4}|"} maxlength="4" autocomplete="off" placeholder="1234" /><small>可留空；不要输入完整卡号。</small></label>
+    <label>币种<input bind:value={card.currency} required pattern={"[A-Z]{3}"} maxlength="3" placeholder="CNY" /></label>
     <label>识别色<input type="color" bind:value={card.color} /></label>
   </div></div>
   <div class="panel stack"><h2>账单与还款规则</h2><div class="form-grid">
@@ -35,7 +35,7 @@
     {:else}<label class="full">账单后几天还款<input type="number" min="1" max="90" required bind:value={card.due_offset_days} /></label>{/if}
     <label class="full">周末调整<select bind:value={card.weekend_adjustment}><option value="none">不调整（推荐以银行账单为准）</option><option value="previous_business_day">遇周末提前到周五</option><option value="next_business_day">遇周末顺延到周一</option></select><small>只处理周六、周日，不包含法定节假日或银行规则。</small></label>
   </div><div class="hint">不存在的日期会截到当月最后一天。例如每月 31 日在二月为 28 日或 29 日。某一期有变化，可在账期中单独修改，不会改动整张卡的规则。</div></div>
-  <div class="panel stack"><label class="check"><input type="checkbox" bind:checked={annual} />管理年费日期</label>{#if annual}<div class="form-grid"><label>月份<input type="number" min="1" max="12" bind:value={card.annual_fee_month} required /></label><label>日期<input type="number" min="1" max="31" bind:value={card.annual_fee_day} required /></label><label class="full">年费金额（可选）<input bind:value={card.annual_fee_amount} inputmode="decimal" pattern="[0-9]{1,12}(\.[0-9]{1,2})?" placeholder="例如 100.00" /></label></div>{/if}
+  <div class="panel stack"><label class="check"><input type="checkbox" bind:checked={annual} />管理年费日期</label>{#if annual}<div class="form-grid"><label>月份<input type="number" min="1" max="12" bind:value={card.annual_fee_month} required /></label><label>日期<input type="number" min="1" max="31" bind:value={card.annual_fee_day} required /></label><label class="full">年费金额（可选）<input bind:value={card.annual_fee_amount} inputmode="decimal" pattern={"[0-9]{1,12}(\\.[0-9]{1,2})?"} placeholder="例如 100.00" /></label></div>{/if}
   <label>备注<textarea bind:value={card.notes} rows="3" maxlength="4000" placeholder="不要保存完整卡号、CVV、PIN 或银行密码。"></textarea></label></div>
   <div class="form-footer"><a class="button button-outline" href={cancelHref}>取消</a><Button type="submit" disabled={busy}>{busy?'正在保存…':'保存信用卡'}</Button></div>
 </form>
