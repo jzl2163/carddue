@@ -1,0 +1,17 @@
+/target/
+**/node_modules/
+**/.svelte-kit/
+/frontend/build/
+/frontend/src/lib/generated/
+/api/openapi.json
+.env
+.env.*
+!.env.example
+/secrets/
+/backups/
+/test-results/
+/playwright-report/
+*.pem
+*.key
+*.dump
+.DS_Store
