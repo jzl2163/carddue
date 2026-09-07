@@ -258,11 +258,17 @@ pub async fn dashboard(State(s): State<AppState>, auth: Auth) -> Result<Json<Val
         .parse()
         .map_err(|_| AppError::internal())?;
     let today = chrono::Utc::now().with_timezone(&tz).date_naive();
-    let rows=sqlx::query("SELECT e.id,e.card_id,e.cycle_id,e.kind,e.title,e.event_date,e.paid,c.data->>'name' AS card_name,c.data->>'color' AS color,cy.amount::text AS amount FROM calendar_events e JOIN cards c ON c.id=e.card_id LEFT JOIN card_cycles cy ON cy.id=e.cycle_id WHERE e.user_id=$1 AND e.active=true AND e.event_date BETWEEN $2 AND $3 ORDER BY e.event_date,e.kind LIMIT 500")
+    let rows=sqlx::query("SELECT e.id,e.card_id,e.cycle_id,e.kind,e.title,e.event_date,e.paid,c.data->>'name' AS card_name,c.data->>'color' AS color,c.data->>'timezone' AS card_timezone,cy.amount::text AS amount FROM calendar_events e JOIN cards c ON c.id=e.card_id LEFT JOIN card_cycles cy ON cy.id=e.cycle_id WHERE e.user_id=$1 AND e.active=true AND e.event_date BETWEEN $2 AND $3 ORDER BY e.event_date,e.kind LIMIT 500")
         .bind(auth.user.id).bind(today-chrono::Duration::days(30)).bind(today+chrono::Duration::days(90)).fetch_all(&s.db).await?;
     let mut events = Vec::new();
     for r in rows {
-        events.push(json!({"id":r.try_get::<Uuid,_>("id")?,"card_id":r.try_get::<Uuid,_>("card_id")?,"cycle_id":r.try_get::<Option<Uuid>,_>("cycle_id")?,"kind":r.try_get::<String,_>("kind")?,"title":r.try_get::<String,_>("title")?,"date":r.try_get::<chrono::NaiveDate,_>("event_date")?,"paid":r.try_get::<bool,_>("paid")?,"card_name":r.try_get::<String,_>("card_name")?,"color":r.try_get::<String,_>("color")?,"amount":r.try_get::<Option<String>,_>("amount")?}));
+        let card_timezone = r
+            .try_get::<Option<String>, _>("card_timezone")?
+            .unwrap_or_else(|| auth.user.timezone.clone());
+        let card_tz: chrono_tz::Tz = card_timezone.parse().map_err(|_| AppError::internal())?;
+        let local_today = chrono::Utc::now().with_timezone(&card_tz).date_naive();
+        let event_date: chrono::NaiveDate = r.try_get("event_date")?;
+        events.push(json!({"timezone":card_timezone,"local_today":local_today,"days_until":(event_date-local_today).num_days(),"id":r.try_get::<Uuid,_>("id")?,"card_id":r.try_get::<Uuid,_>("card_id")?,"cycle_id":r.try_get::<Option<Uuid>,_>("cycle_id")?,"kind":r.try_get::<String,_>("kind")?,"title":r.try_get::<String,_>("title")?,"date":r.try_get::<chrono::NaiveDate,_>("event_date")?,"paid":r.try_get::<bool,_>("paid")?,"card_name":r.try_get::<String,_>("card_name")?,"color":r.try_get::<String,_>("color")?,"amount":r.try_get::<Option<String>,_>("amount")?}));
     }
     Ok(Json(
         json!({"today":today,"timezone":auth.user.timezone,"events":events}),
@@ -364,4 +370,133 @@ pub async fn delete_milestone(
     audit(&mut tx, auth.user.id, "milestone_deleted", Some(id)).await?;
     tx.commit().await?;
     Ok(Json(json!({"ok":true})))
+}
+
+pub async fn delete(
+    State(s): State<AppState>,
+    auth: Auth,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Value>> {
+    let mut tx = s.db.begin().await?;
+    lock_user(&mut tx, auth.user.id).await?;
+    owned_cards(&mut tx, auth.user.id, &[id]).await?;
+    sqlx::query("DELETE FROM delivery_attempts WHERE job_id IN (SELECT j.id FROM notification_jobs j JOIN calendar_events e ON e.id=j.event_id WHERE e.card_id=$1 AND j.user_id=$2)")
+        .bind(id).bind(auth.user.id).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM notification_jobs WHERE user_id=$2 AND event_id IN (SELECT id FROM calendar_events WHERE card_id=$1 AND user_id=$2)")
+        .bind(id).bind(auth.user.id).execute(&mut *tx).await?;
+    for query in [
+        "DELETE FROM calendar_events WHERE card_id=$1 AND user_id=$2",
+        "DELETE FROM card_cycles WHERE card_id=$1 AND user_id=$2",
+        "DELETE FROM card_milestones WHERE card_id=$1 AND user_id=$2",
+    ] {
+        sqlx::query(query)
+            .bind(id)
+            .bind(auth.user.id)
+            .execute(&mut *tx)
+            .await?;
+    }
+    let deleted = id.to_string();
+    for (is_feed, select, update) in [
+        (
+            true,
+            "SELECT id,data FROM calendar_feeds WHERE user_id=$1",
+            "UPDATE calendar_feeds SET data=$1,updated_at=now() WHERE id=$2 AND user_id=$3",
+        ),
+        (
+            false,
+            "SELECT id,data FROM notification_rules WHERE user_id=$1",
+            "UPDATE notification_rules SET data=$1,updated_at=now() WHERE id=$2 AND user_id=$3",
+        ),
+    ] {
+        let rows = sqlx::query(select)
+            .bind(auth.user.id)
+            .fetch_all(&mut *tx)
+            .await?;
+        for row in rows {
+            let mut data: Value = row.try_get("data")?;
+            if let Some(ids) = data["card_ids"].as_array_mut() {
+                let before = ids.len();
+                ids.retain(|v| v.as_str() != Some(deleted.as_str()));
+                if ids.len() != before {
+                    if ids.is_empty() {
+                        // Do not silently broaden an explicit card selection to all cards.
+                        // An empty-kind feed can still deliver cancellation tombstones.
+                        if is_feed {
+                            data["kinds"] = json!([]);
+                        } else {
+                            data["enabled"] = json!(false);
+                        }
+                    }
+                    sqlx::query(update)
+                        .bind(data)
+                        .bind(row.try_get::<Uuid, _>("id")?)
+                        .bind(auth.user.id)
+                        .execute(&mut *tx)
+                        .await?;
+                }
+            }
+        }
+    }
+    sqlx::query("DELETE FROM cards WHERE id=$1 AND user_id=$2")
+        .bind(id)
+        .bind(auth.user.id)
+        .execute(&mut *tx)
+        .await?;
+    planner::reconcile(&mut tx, auth.user.id, &s.config).await?;
+    audit(&mut tx, auth.user.id, "card_deleted", Some(id)).await?;
+    tx.commit().await?;
+    Ok(Json(json!({"ok":true})))
+}
+
+pub async fn ranking(State(s): State<AppState>, auth: Auth) -> Result<Json<Value>> {
+    let mut tx = s.db.begin().await?;
+    let account_timezone = lock_user(&mut tx, auth.user.id).await?;
+    planner::reconcile(&mut tx, auth.user.id, &s.config).await?;
+    let rows = sqlx::query("SELECT id,data FROM cards WHERE user_id=$1 AND active=true")
+        .bind(auth.user.id)
+        .fetch_all(&mut *tx)
+        .await?;
+    let now = chrono::Utc::now();
+    let account_today = now
+        .with_timezone(
+            &account_timezone
+                .parse::<chrono_tz::Tz>()
+                .map_err(|_| AppError::internal())?,
+        )
+        .date_naive();
+    let mut result = Vec::new();
+    for row in rows {
+        let id: Uuid = row.try_get("id")?;
+        let c: CardInput = serde_json::from_value(row.try_get("data")?)?;
+        let tz = c.effective_timezone(&account_timezone)?;
+        let today = now.with_timezone(&tz).date_naive();
+        let cycles = sqlx::query_as::<_, CycleView>(planner::CYCLES)
+            .bind(auth.user.id)
+            .bind(id)
+            .fetch_all(&mut *tx)
+            .await?;
+        let estimate = crate::dates::interest_estimate(&cycles, today);
+        if let Some(crate::dates::InterestEstimate {
+            statement,
+            due,
+            days,
+            longest,
+        }) = estimate
+        {
+            result.push(json!({"id":id,"name":c.name,"issuer":c.issuer,"network":c.network,"color":c.color,
+                "region":c.region,"timezone":tz.name(),"different_timezone":tz.name()!=account_timezone,
+                "different_date":today!=account_today,"local_today":today,"statement_date":statement,
+                "due_date":due,"days":days,"longest_days":longest}));
+        }
+    }
+    result.sort_by(|a, b| {
+        b["days"]
+            .as_i64()
+            .cmp(&a["days"].as_i64())
+            .then_with(|| a["id"].as_str().cmp(&b["id"].as_str()))
+    });
+    tx.commit().await?;
+    Ok(Json(
+        json!({"account_timezone":account_timezone,"as_of":now,"cards":result}),
+    ))
 }

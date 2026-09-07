@@ -17,3 +17,6 @@ test-results
 *.dump
 
 *.log
+
+# macOS transfer metadata is never source code
+**/._*

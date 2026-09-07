@@ -241,6 +241,11 @@ pub fn router(s: AppState) -> Router {
             get(cards::get).patch(cards::update).delete(cards::archive),
         )
         .route("/cards/{id}/restore", post(cards::restore))
+        .route(
+            "/cards/{id}/permanent",
+            axum::routing::delete(cards::delete),
+        )
+        .route("/cards/ranking", get(cards::ranking))
         .route("/cards/{card}/cycles", get(cards::cycles))
         .route("/cards/{card}/cycles/{cycle}", patch(cards::patch_cycle))
         .route(

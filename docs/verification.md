@@ -33,3 +33,14 @@ HTTP 页面响应正常不等于视觉与交互验收。编译和测试通过不
 
 ## 后续更新
 核心浏览器交互及编辑器修复已实测，见 [本机浏览器验证](browser-validation.md)。本轮专用 carddue-browser 服务有意保持运行供用户体验，与此前已清理的临时验证容器不同。
+
+## 2026-09-07 六项功能更新
+本次在基线 55e2856 上加入注册入口确认密码、永久删除、发行地区与卡片独立时区、银行/卡组织搜索选择、无金额模板回归，以及免息期排行榜。用法见 [功能说明](features-20260907.md)。
+
+Oracle Docker 实测：cargo fmt、严格 clippy 通过；13 项 Rust 单元测试、9 项 PostgreSQL 集成测试全部通过，无忽略；前端类型检查 0 errors / 0 warnings，2 项 Vitest 测试通过，静态构建和资源预算通过。新增迁移 0003 解除日历发布记录对已删除事件的外键依赖，保留匿名取消 UID。
+
+scripts/browser-features.mjs 在服务器使用现有 Playwright 依赖，经回环 SSH 转发操作本机 Chrome。独立 carddue-staging 数据库中完成：普通账户注册、银行下拉无匹配/回车/焦点回归、卡组织选择、地区及独立时区保存、账户时区回退、两种排行榜模式、跨时区提示、卡片编辑与删除、390px 无整页横向溢出、重新登录及数据保留；未发现浏览器运行时异常。截图保留服务器，未下载或据此声称完成全面视觉检查。
+
+已验证镜像：sha256:7a252265ea450ffedba3c86665d2e3d3a15a10e646315cb18204354af27c6bf8。
+详细日志留在 Oracle 的 /opt/carddue-next/feature-rust.log、feature-frontend.log、feature-image.log、feature-browser.log。
+本机没有安装任何项目依赖。真实推送目的端、完整浏览器覆盖和备份恢复演练仍待验收；版本仍为候选版。

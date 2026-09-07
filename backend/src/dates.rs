@@ -133,3 +133,91 @@ mod tests {
         );
     }
 }
+
+#[derive(Debug)]
+pub struct InterestEstimate {
+    pub statement: NaiveDate,
+    pub due: NaiveDate,
+    pub days: i64,
+    pub longest: i64,
+}
+
+/// Estimate a new purchase posted today. Statement-day purchases are assumed to
+/// enter that day's bill. Calendar-day differences exclude the purchase day.
+pub fn interest_estimate(
+    cycles: &[crate::model::CycleView],
+    today: NaiveDate,
+) -> Option<InterestEstimate> {
+    let mut ordered: Vec<_> = cycles.iter().collect();
+    ordered.sort_by_key(|c| (c.statement_date, c.cycle_month));
+    let next = ordered.iter().find(|c| c.statement_date >= today)?;
+    let longest = ordered
+        .windows(2)
+        .filter(|w| {
+            w[1].statement_date >= today && w[1].statement_date <= today + Duration::days(366)
+        })
+        .map(|w| (w[1].due_date - (w[0].statement_date + Duration::days(1))).num_days())
+        .max()
+        .unwrap_or((next.due_date - today).num_days());
+    Some(InterestEstimate {
+        statement: next.statement_date,
+        due: next.due_date,
+        days: (next.due_date - today).num_days(),
+        longest,
+    })
+}
+
+#[cfg(test)]
+mod interest_tests {
+    use super::*;
+    fn cycle(statement: &str, due: &str) -> crate::model::CycleView {
+        let statement: NaiveDate = statement.parse().unwrap();
+        crate::model::CycleView {
+            id: uuid::Uuid::new_v4(),
+            card_id: uuid::Uuid::new_v4(),
+            cycle_month: month(statement, 0),
+            statement_date: statement,
+            due_date: due.parse().unwrap(),
+            statement_overridden: false,
+            due_overridden: false,
+            amount: None,
+            minimum_payment: None,
+            paid_at: None,
+            note: String::new(),
+            revision: 0,
+        }
+    }
+    #[test]
+    fn ranking_cross_month_leap_year_and_statement_day() {
+        let cycles = vec![
+            cycle("2028-01-31", "2028-02-20"),
+            cycle("2028-02-29", "2028-03-20"),
+            cycle("2028-03-31", "2028-04-20"),
+        ];
+        let a = interest_estimate(&cycles, day(2028, 2, 1)).unwrap();
+        assert_eq!(a.days, 48);
+        assert_eq!(a.longest, 50);
+        assert_eq!(
+            interest_estimate(&cycles, day(2028, 2, 29)).unwrap().days,
+            20
+        );
+        assert_eq!(
+            interest_estimate(&cycles, day(2028, 3, 1)).unwrap().days,
+            50
+        );
+    }
+    #[test]
+    fn card_local_date_across_international_date_line() {
+        let now = DateTime::parse_from_rfc3339("2028-03-01T01:00:00Z").unwrap();
+        let cycles = vec![
+            cycle("2028-02-29", "2028-03-20"),
+            cycle("2028-03-31", "2028-04-20"),
+        ];
+        let ny = now
+            .with_timezone(&chrono_tz::America::New_York)
+            .date_naive();
+        let sh = now.with_timezone(&chrono_tz::Asia::Shanghai).date_naive();
+        assert_eq!(interest_estimate(&cycles, ny).unwrap().days, 20);
+        assert_eq!(interest_estimate(&cycles, sh).unwrap().days, 50);
+    }
+}

@@ -43,6 +43,10 @@ fn time() -> String {
 pub struct CardInput {
     pub name: String,
     #[serde(default)]
+    pub region: Option<String>,
+    #[serde(default)]
+    pub timezone: Option<String>,
+    #[serde(default)]
     pub issuer: String,
     #[serde(default)]
     pub network: String,
@@ -73,8 +77,21 @@ pub struct CardInput {
     pub notes: String,
 }
 impl CardInput {
+    pub fn effective_timezone(&self, account: &str) -> Result<chrono_tz::Tz> {
+        self.timezone
+            .as_deref()
+            .unwrap_or(account)
+            .parse()
+            .map_err(|_| AppError::bad("卡片时区必须是有效的 IANA 时区名称"))
+    }
     pub fn validate(&self) -> Result<()> {
         text(&self.name, 1, 100)?;
+        if let Some(region) = &self.region
+            && (region.len() != 2 || !region.bytes().all(|b| b.is_ascii_uppercase()))
+        {
+            return Err(AppError::bad("发行地区必须是两位大写地区代码"));
+        }
+        self.effective_timezone("UTC")?;
         text(&self.issuer, 0, 100)?;
         text(&self.network, 0, 40)?;
         text(&self.notes, 0, 4000)?;
@@ -251,7 +268,7 @@ impl Default for TemplateInput {
     fn default() -> Self {
         Self {
         name: "默认还款提醒".into(), title: "💳 {{ card.name }} · {{ event.label }}".into(),
-        body: "日期：{{ event.date }}\n距离到期：{{ event.days_until }} 天\n{% if cycle.amount %}金额：{{ cycle.amount }} {{ card.currency }}{% endif %}".into(),
+        body: "日期：{{ event.date }}\n距离到期：{{ event.days_until }} 天{% if cycle.amount %}\n金额：{{ cycle.amount }} {{ card.currency }}{% endif %}".into(),
         html: "<h2>{{ card.name }}</h2><p>{{ event.label }}：<strong>{{ event.date }}</strong></p><p>请以银行实际账单为准。</p>".into(),
         url: "{{ app.url }}/cards/{{ card.id }}".into(), group: "CardDue".into(), sound: "bell".into(), level: "active".into(),
     }

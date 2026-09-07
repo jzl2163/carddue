@@ -563,3 +563,207 @@ async fn invalid_recurrence_templates_and_cross_tenant_references(db: PgPool) {
     let (status,_,_)=request(&s,"POST","/api/v1/notification/connections",Some(json!({"name":"metadata","kind":"webhook","config":{"url":"https://169.254.169.254/latest/meta-data/"}})),Some(&a),&[]).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }
+
+#[sqlx::test(migrations = "./migrations")]
+async fn registration_switch_duplicate_and_non_admin(db: PgPool) {
+    let mut s = state(db);
+    account(&s, "owner@example.com", true).await;
+    let user = account(&s, "new@example.com", false).await;
+    let session = ok(&s, "GET", "/api/v1/auth/session", None, Some(&user)).await;
+    assert_eq!(session["user"]["is_admin"], false);
+    let input = json!({"email":"new@example.com","password":PASSWORD,"timezone":"UTC"});
+    let (status, _, _) = request(
+        &s,
+        "POST",
+        "/api/v1/auth/register",
+        Some(input.clone()),
+        None,
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    Arc::get_mut(&mut s).unwrap().config.allow_registration = false;
+    let (status, _, _) = request(&s, "POST", "/api/v1/auth/register", Some(input), None, &[]).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn card_delete_preserves_cancellations_and_isolation(db: PgPool) {
+    let s = state(db);
+    let alice = account(&s, "delete-a@example.com", true).await;
+    let bob = account(&s, "delete-b@example.com", false).await;
+    let id = add_card(&s, &alice, "TO-DELETE").await;
+    let other = add_card(&s, &alice, "DO-NOT-PUBLISH").await;
+    let feed = ok(
+        &s,
+        "POST",
+        "/api/v1/calendar/feeds",
+        Some(json!({"name":"only target","card_ids":[id]})),
+        Some(&alice),
+    )
+    .await;
+    let path = feed["url"].as_str().unwrap().strip_prefix(ORIGIN).unwrap();
+    let (_, headers, body) = request(&s, "GET", path, None, None, &[]).await;
+    assert!(body.contains("TO-DELETE"));
+    let endpoint = format!("/api/v1/cards/{id}/permanent");
+    assert_eq!(
+        request(&s, "DELETE", &endpoint, None, Some(&bob), &[])
+            .await
+            .0,
+        StatusCode::NOT_FOUND
+    );
+    // A claimed task must not survive deletion and later send.
+    let conn = connection(&s, &alice, "bark", "http://127.0.0.1:9").await;
+    let event: Uuid = sqlx::query_scalar("SELECT id FROM calendar_events WHERE card_id=$1 LIMIT 1")
+        .bind(id)
+        .fetch_one(&s.db)
+        .await
+        .unwrap();
+    let owner = Uuid::new_v4();
+    let job = Uuid::new_v4();
+    sqlx::query("INSERT INTO notification_jobs(id,user_id,event_id,connection_id,scheduled_at,next_attempt_at,expires_at,status,lease_owner,lease_until,template_snapshot,context) VALUES($1,$2,$3,$4,now(),now(),now()+interval '1 day','processing',$5,now()+interval '1 hour','{}','{}')")
+        .bind(job).bind(alice.user).bind(event).bind(conn).bind(owner).execute(&s.db).await.unwrap();
+    ok(&s, "DELETE", &endpoint, None, Some(&alice)).await;
+    worker::deliver(&s, alice.user, job, owner).await.unwrap();
+    assert_eq!(
+        request(
+            &s,
+            "GET",
+            &format!("/api/v1/cards/{id}"),
+            None,
+            Some(&alice),
+            &[]
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        request(
+            &s,
+            "POST",
+            &format!("/api/v1/cards/{id}/restore"),
+            None,
+            Some(&alice),
+            &[]
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+    let n: i64 = sqlx::query_scalar("SELECT count(*) FROM notification_jobs WHERE id=$1")
+        .bind(job)
+        .fetch_one(&s.db)
+        .await
+        .unwrap();
+    assert_eq!(n, 0);
+    let (_, new_headers, body) = request(&s, "GET", path, None, None, &[]).await;
+    assert!(body.contains("STATUS:CANCELLED"));
+    assert!(!body.contains("TO-DELETE"));
+    assert!(!body.contains("DO-NOT-PUBLISH"));
+    assert_ne!(headers["etag"], new_headers["etag"]);
+    assert_eq!(
+        request(
+            &s,
+            "GET",
+            &format!("/api/v1/cards/{other}"),
+            None,
+            Some(&alice),
+            &[]
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn per_card_timezone_reschedules_claimed_jobs_and_fallback(db: PgPool) {
+    let s = state(db);
+    let a = account(&s, "timezone@example.com", true).await;
+    let mut c = card("NY card");
+    c["timezone"] = json!("America/New_York");
+    c["region"] = json!("US");
+    let ny = Uuid::parse_str(
+        ok(&s, "POST", "/api/v1/cards", Some(c.clone()), Some(&a)).await["id"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    let fallback = add_card(&s, &a, "Account timezone").await;
+    let invalid =
+        json!({"name":"bad zone","statement_day":1,"due_day":25,"timezone":"Mars/Olympus"});
+    assert_eq!(
+        request(&s, "POST", "/api/v1/cards", Some(invalid), Some(&a), &[])
+            .await
+            .0,
+        StatusCode::BAD_REQUEST
+    );
+    let conn = connection(&s, &a, "bark", "http://127.0.0.1:9").await;
+    let template: Uuid =
+        sqlx::query_scalar("SELECT id FROM notification_templates WHERE user_id=$1")
+            .bind(a.user)
+            .fetch_one(&s.db)
+            .await
+            .unwrap();
+    ok(&s,"POST","/api/v1/notification/rules",Some(json!({"name":"nine local","event_kind":"payment_due","offsets":[0],"local_time":"09:00","connection_ids":[conn],"template_id":template})),Some(&a)).await;
+    let jan = chrono::NaiveDate::from_ymd_opt(Utc::now().year() + 1, 1, 25).unwrap();
+    let query = "SELECT j.scheduled_at FROM notification_jobs j JOIN calendar_events e ON e.id=j.event_id WHERE e.card_id=$1 AND e.event_date=$2";
+    let ny_time: chrono::DateTime<Utc> = sqlx::query_scalar(query)
+        .bind(ny)
+        .bind(jan)
+        .fetch_one(&s.db)
+        .await
+        .unwrap();
+    assert_eq!(ny_time, jan.and_hms_opt(14, 0, 0).unwrap().and_utc());
+    ok(
+        &s,
+        "PATCH",
+        "/api/v1/account",
+        Some(json!({"timezone":"Asia/Shanghai"})),
+        Some(&a),
+    )
+    .await;
+    let fallback_time: chrono::DateTime<Utc> = sqlx::query_scalar(query)
+        .bind(fallback)
+        .bind(jan)
+        .fetch_one(&s.db)
+        .await
+        .unwrap();
+    assert_eq!(fallback_time, jan.and_hms_opt(1, 0, 0).unwrap().and_utc());
+    let ny_still: chrono::DateTime<Utc> = sqlx::query_scalar(query)
+        .bind(ny)
+        .bind(jan)
+        .fetch_one(&s.db)
+        .await
+        .unwrap();
+    assert_eq!(ny_still, ny_time);
+    let owner = Uuid::new_v4();
+    let job:Uuid=sqlx::query_scalar("UPDATE notification_jobs j SET status='processing',lease_owner=$1,lease_until=now()+interval '1 hour' FROM calendar_events e WHERE e.id=j.event_id AND e.card_id=$2 AND e.event_date=$3 RETURNING j.id")
+        .bind(owner).bind(ny).bind(jan).fetch_one(&s.db).await.unwrap();
+    c["timezone"] = json!("Asia/Shanghai");
+    ok(
+        &s,
+        "PATCH",
+        &format!("/api/v1/cards/{ny}"),
+        Some(c),
+        Some(&a),
+    )
+    .await;
+    worker::deliver(&s, a.user, job, owner).await.unwrap();
+    let new_time: chrono::DateTime<Utc> = sqlx::query_scalar(query)
+        .bind(ny)
+        .bind(jan)
+        .fetch_one(&s.db)
+        .await
+        .unwrap();
+    assert_eq!(new_time, fallback_time);
+    let status: String = sqlx::query_scalar("SELECT status FROM notification_jobs WHERE id=$1")
+        .bind(job)
+        .fetch_one(&s.db)
+        .await
+        .unwrap();
+    assert_eq!(status, "pending");
+    let rank = ok(&s, "GET", "/api/v1/cards/ranking", None, Some(&a)).await;
+    assert_eq!(rank["cards"].as_array().unwrap().len(), 2);
+}

@@ -1,5 +1,15 @@
 # CardDue 交接
 
+## 当前功能更新（2026-09-07）
+本轮完成六项用户需求，功能用法见 docs/features-20260907.md，实际验证见 docs/verification.md 最后章节。
+新增 API：DELETE /api/v1/cards/{id}/permanent 和 GET /api/v1/cards/ranking；原 DELETE /cards/{id} 继续归档。
+卡片 data 中 region/timezone 可空，空时区动态跟随账户；规划和投递按有效卡时区计算。删除需要账号事务锁，并保留匿名日历取消身份。
+上线需执行新增 SQL 迁移并将 ALLOW_REGISTRATION=true；保留原数据库及加密/签名/VAPID 密钥。更新前应备份，不能把测试目录的 .env 复制到线上。
+scripts/browser-features.mjs 可经 CDP 回归，本轮实际连接本机 Chrome，依赖仅在 Oracle。它只允许 localhost:28180 隔离测试入口，不是覆盖所有页面的 CI 套件。
+子代理 GPT-5.6 Luna Max 负责简单的前端可访问性检查和功能文档，复杂逻辑和最终验证由主代理处理。
+
+## 历史接手记录
+
 本轮接手基线：GitHub main 提交 `0a872e4`。Oracle 工作目录：`/opt/carddue-work`，分支：`codex/arm64-validation`。
 
 仓库已有 Rust/Svelte 代码、锁文件、两份 SQL 迁移、10 项 Rust 单元测试、6 项数据库集成测试和2项前端单元测试。此前 README 引用的文档未入库，本轮补齐基础文档及容器验证入口。

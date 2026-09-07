@@ -19,3 +19,6 @@
 # Local verification artifacts
 /*.log
 /frontend/openapi.json
+
+/browser-features-*.png
+**/._*

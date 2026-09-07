@@ -37,7 +37,7 @@ pub fn document() -> Value {
     d["servers"] = json!([{"url":"/api/v1"}]);
     d["components"]["securitySchemes"] = json!({"session":{"type":"apiKey","in":"cookie","name":"__Host-carddue","description":"Development HTTP uses carddue. Cookie is HttpOnly; obtain CSRF token from /auth/session."}});
     d["security"] = json!([{"session":[]}]);
-    let definitions: [(&str, &str, Option<&str>); 43] = [
+    let definitions: [(&str, &str, Option<&str>); 45] = [
         ("/auth/status", "get", None),
         ("/auth/setup", "post", Some("SetupInput")),
         ("/auth/register", "post", Some("SetupInput")),
@@ -54,6 +54,8 @@ pub fn document() -> Value {
         ("/cards/{id}", "patch", Some("CardInput")),
         ("/cards/{id}", "delete", None),
         ("/cards/{id}/restore", "post", None),
+        ("/cards/{id}/permanent", "delete", None),
+        ("/cards/ranking", "get", None),
         ("/cards/{card}/cycles", "get", None),
         ("/cards/{card}/cycles/{cycle}", "patch", Some("CyclePatch")),
         ("/cards/{card}/cycles/{cycle}/pay", "post", None),

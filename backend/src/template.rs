@@ -131,6 +131,22 @@ mod tests {
         assert!(r.html.contains("&lt;script&gt;"));
     }
     #[test]
+    fn missing_amount_is_omitted_but_zero_is_not() {
+        let t = TemplateInput::default();
+        let mut context = sample("https://carddue.example");
+        context["cycle"]["amount"] = Value::Null;
+        let rendered = render(&t, &context, "https://carddue.example").unwrap();
+        assert!(!rendered.body.contains("金额"));
+        assert!(!rendered.body.contains("None"));
+        context["cycle"]["amount"] = json!("0.00");
+        assert!(
+            render(&t, &context, "https://carddue.example")
+                .unwrap()
+                .body
+                .contains("金额：0.00 CNY")
+        );
+    }
+    #[test]
     fn errors_and_output_limits() {
         let mut t = TemplateInput {
             title: "{{ unknown }}".into(),
