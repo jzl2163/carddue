@@ -1,0 +1,39 @@
+# Isolated disposable test database; no host ports or production configuration.
+name: carddue-verify
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: carddue
+      POSTGRES_PASSWORD: carddue_test_only
+      POSTGRES_DB: carddue_test
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U carddue -d carddue_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  rust:
+    image: rust:1-bookworm
+    working_dir: /work
+    volumes:
+      - .:/work
+      - cargo-cache:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+    environment:
+      DATABASE_URL: postgres://carddue:carddue_test_only@postgres:5432/carddue_test
+      CARGO_BUILD_JOBS: "2"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["sh", "-ec", "cargo fmt --all --check; cargo clippy --locked --workspace --all-targets -- -D warnings; cargo test --locked --workspace --all-targets; cargo run --locked --bin carddue -- openapi > frontend/openapi.json"]
+  frontend:
+    image: node:22-bookworm-slim
+    working_dir: /work/frontend
+    volumes:
+      - .:/work
+    command: ["sh", "-ec", "npm ci --no-audit --no-fund; npm run api:generate; npm run check; npm test; npm run build; npm run budget"]
+volumes:
+  cargo-cache:
+  cargo-git:

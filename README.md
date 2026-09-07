@@ -6,6 +6,8 @@ Rust / Axum / PostgreSQL 后端，Svelte 5 / SvelteKit / TypeScript / Tailwind 4
 
 > 当前为第一版源码候选。请根据 [验证记录](docs/verification.md) 和具体提交的 GitHub Actions 结果判断测试状态，不把“有实现”等同于“所有真实设备已经验收”。CardDue 不会自动还款，不能替代银行账单，也不应作为唯一还款保障。
 
+新功能：支持普通账户注册、永久删除信用卡、可选发行地区与独立时区、银行和卡组织搜索选择，以及按今天消费/理论最长比较的免息期排行榜。[查看使用说明](docs/features-20260907.md)。
+
 ## 功能范围
 
 信用卡名称、发卡行、卡组织、可选尾四位、识别色和币种；账单日、固定同月／次月还款日、账单后若干天还款；年费及单次／每月／每年自定义事项；自动账期、单期覆盖、金额记录、已还款标记与撤销；归档与恢复。
@@ -15,6 +17,16 @@ Rust / Axum / PostgreSQL 后端，Svelte 5 / SvelteKit / TypeScript / Tailwind 4
 PostgreSQL 持久通知队列，租约与并发领取，失败重试、已还款取消和投递历史；Argon2id 密码、服务端会话、CSRF、凭据加密、出站地址检查、限流和审计；中文响应式界面，浅色／深色／跟随系统。
 
 不包含银行连接、消费流水同步、自动还款、信用评分、账单 OCR 或财务建议。
+
+## 在服务器容器中验证
+
+只需服务器已有 Git、Docker 和 Compose，无须在本机或服务器主机安装 Rust/Node：
+
+```sh
+sh scripts/verify-docker.sh
+```
+
+验证使用独立临时 PostgreSQL，执行锁定依赖的 Rust 格式检查、clippy、测试、API 导出，以及前端类型检查、测试、构建和资源预算。退出时清理测试容器。缓存清理见 [部署与运维](docs/operations-guide-zh.md)。
 
 ## 本机试用
 

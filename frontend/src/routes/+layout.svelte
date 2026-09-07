@@ -3,7 +3,7 @@
   import { onMount } from 'svelte';
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
-  import { LayoutDashboard, CreditCard, CalendarDays, Bell, Settings, LogOut, ShieldCheck, X } from '@lucide/svelte';
+  import { Trophy, LayoutDashboard, CreditCard, CalendarDays, Bell, Settings, LogOut, ShieldCheck, X } from '@lucide/svelte';
   import { api, session, notice, refreshSession, showError } from '$lib/api';
   import Loading from '$lib/components/Loading.svelte';
   let { children } = $props();
@@ -11,6 +11,7 @@
   const navigation = [
     { href: '/', label: '总览', icon: LayoutDashboard }, { href: '/cards', label: '信用卡', icon: CreditCard },
     { href: '/calendar', label: '日历订阅', icon: CalendarDays }, { href: '/notifications', label: '通知中心', icon: Bell },
+    { href: '/ranking', label: '免息排行', icon: Trophy },
     { href: '/settings', label: '设置', icon: Settings }
   ];
   onMount(() => {

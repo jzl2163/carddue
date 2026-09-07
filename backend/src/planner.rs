@@ -34,12 +34,7 @@ pub async fn reconcile(conn: &mut PgConnection, user: Uuid, cfg: &Config) -> Res
         .bind(user)
         .fetch_one(&mut *conn)
         .await?;
-    let tz: chrono_tz::Tz = timezone.parse().map_err(|_| AppError::internal())?;
     let now = Utc::now();
-    let today = now.with_timezone(&tz).date_naive();
-    let current = dates::month(today, 0);
-    let start = dates::month(today, -3);
-    let end = dates::month(today, 25);
     let rows =
         sqlx::query("SELECT id,data FROM cards WHERE user_id=$1 AND active=true ORDER BY id")
             .bind(user)
@@ -51,6 +46,11 @@ pub async fn reconcile(conn: &mut PgConnection, user: Uuid, cfg: &Config) -> Res
     for row in rows {
         let card: Uuid = row.try_get("id")?;
         let c: CardInput = serde_json::from_value(row.try_get("data")?)?;
+        let card_tz = c.effective_timezone(&timezone)?;
+        let today = now.with_timezone(&card_tz).date_naive();
+        let current = dates::month(today, 0);
+        let start = dates::month(today, -3);
+        let end = dates::month(today, 25);
         for offset in -3..=24 {
             let m = dates::month(today, offset);
             let id = stable(&format!("{card}/cycle/{m}"));
@@ -151,6 +151,13 @@ pub async fn reconcile(conn: &mut PgConnection, user: Uuid, cfg: &Config) -> Res
         if !cards.contains_key(&m.card_id) {
             continue;
         }
+        let card_tz = cards
+            .get(&m.card_id)
+            .ok_or_else(AppError::internal)?
+            .effective_timezone(&timezone)?;
+        let today = now.with_timezone(&card_tz).date_naive();
+        let start = dates::month(today, -3);
+        let end = dates::month(today, 25);
         let mut occurrences = Vec::new();
         match m.recurrence.as_str() {
             "one_time" => occurrences.push(("once".to_string(), m.start_date)),
@@ -241,8 +248,10 @@ pub async fn reconcile(conn: &mut PgConnection, user: Uuid, cfg: &Config) -> Res
             let Some(card) = cards.get(&e.card_id) else {
                 continue;
             };
+            let tz = card.effective_timezone(&timezone)?;
+            let today = now.with_timezone(&tz).date_naive();
             let cycle = e.cycle_id.and_then(|id| cycles.get(&id));
-            let context = json!({"card":{"id":e.card_id,"name":card.name,"issuer":card.issuer,"last4":card.last4,"currency":card.currency},"event":{"type":e.kind,"label":e.title,"date":e.event_date,"days_until":(e.event_date-today).num_days()},"cycle":{"statement_date":cycle.map(|c|c.statement_date),"due_date":cycle.map(|c|c.due_date),"amount":cycle.and_then(|c|c.amount.clone()),"minimum_payment":cycle.and_then(|c|c.minimum_payment.clone())},"user":{"timezone":timezone},"app":{"url":cfg.base_url}});
+            let context = json!({"card":{"id":e.card_id,"name":card.name,"issuer":card.issuer,"last4":card.last4,"currency":card.currency,"timezone":tz.name(),"region":card.region},"event":{"type":e.kind,"label":e.title,"date":e.event_date,"days_until":(e.event_date-today).num_days()},"cycle":{"statement_date":cycle.map(|c|c.statement_date),"due_date":cycle.map(|c|c.due_date),"amount":cycle.and_then(|c|c.amount.clone()),"minimum_payment":cycle.and_then(|c|c.minimum_payment.clone())},"user":{"timezone":timezone},"app":{"url":cfg.base_url}});
             for offset in &rule.offsets {
                 let when = dates::local_instant(
                     e.event_date - Duration::days(i64::from(*offset)),

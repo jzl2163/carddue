@@ -35,10 +35,14 @@ jobs:
             ~/.cargo/git
             target
           key: cargo-${{ runner.os }}-${{ hashFiles('backend/Cargo.toml') }}
+      - name: Check Rust formatting
+        run: cargo fmt --all --check
+      - name: Rust lint
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - name: Compile and run Rust tests
-        run: cargo test --workspace --all-targets
+        run: cargo test --locked --workspace --all-targets
       - name: Export API contract
-        run: cargo run --bin carddue -- openapi > openapi.json
+        run: cargo run --locked --bin carddue -- openapi > openapi.json
       - uses: actions/upload-artifact@v4
         with:
           name: api-contract
@@ -58,7 +62,7 @@ jobs:
           path: frontend
       - name: Install frontend dependencies
         working-directory: frontend
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
       - name: Generate Rust-derived API types
         working-directory: frontend
         run: npm run api:generate
@@ -71,6 +75,9 @@ jobs:
       - name: Static production build
         working-directory: frontend
         run: npm run build
+      - name: Check bundle budget
+        working-directory: frontend
+        run: npm run budget
       - uses: actions/upload-artifact@v4
         with:
           name: static-frontend

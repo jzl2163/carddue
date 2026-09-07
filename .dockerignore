@@ -15,3 +15,8 @@ test-results
 *.pem
 *.key
 *.dump
+
+*.log
+
+# macOS transfer metadata is never source code
+**/._*

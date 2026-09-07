@@ -135,7 +135,7 @@ pub async fn deliver(s: &AppState, user: Uuid, id: Uuid, owner: Uuid) -> Result<
     let mut context: Value = job.try_get("context")?;
     if let Some(event) = job.try_get::<Option<Uuid>, _>("event_id")? {
         let e = sqlx::query(
-            "SELECT active,paid,event_date FROM calendar_events WHERE id=$1 AND user_id=$2",
+            "SELECT e.active,e.paid,e.event_date,c.data FROM calendar_events e JOIN cards c ON c.id=e.card_id WHERE e.id=$1 AND e.user_id=$2",
         )
         .bind(event)
         .bind(user)
@@ -143,7 +143,8 @@ pub async fn deliver(s: &AppState, user: Uuid, id: Uuid, owner: Uuid) -> Result<
         .await?;
         allowed &= e.try_get::<bool, _>("active")? && !e.try_get::<bool, _>("paid")?;
         let date: chrono::NaiveDate = e.try_get("event_date")?;
-        let tz: chrono_tz::Tz = timezone.parse().map_err(|_| AppError::internal())?;
+        let card: crate::model::CardInput = serde_json::from_value(e.try_get("data")?)?;
+        let tz = card.effective_timezone(&timezone)?;
         context["event"]["days_until"] =
             json!((date - Utc::now().with_timezone(&tz).date_naive()).num_days());
     }

@@ -1,16 +1,20 @@
 <script lang="ts">
   import { untrack } from 'svelte';
+  import { session } from '$lib/api';
+  import { regions, timezones, banks, networks } from '$lib/card-catalog';
+  import BrandPicker from './BrandPicker.svelte';
   import type { CardInput } from '$lib/types';
   import { defaultCard } from '$lib/defaults';
   import Button from './ui/button/Button.svelte';
   let { initial, onsave, cancelHref = '/cards' }: { initial?: CardInput; onsave: (card: CardInput) => Promise<void>; cancelHref?: string } = $props();
-  let card = $state<CardInput>(untrack(() => structuredClone(initial || defaultCard())));
+  let card = $state<CardInput>(untrack(() => $state.snapshot(initial || defaultCard())));
+  const bankChoices = $derived([...banks].sort((a,b)=>Number(b.regions.includes(card.region||''))-Number(a.regions.includes(card.region||''))).map(b=>b.name));
   let annual = $state(untrack(() => Boolean(initial?.annual_fee_month)));
   let busy = $state(false), error = $state('');
   async function submit(event: SubmitEvent) {
     event.preventDefault(); error=''; busy=true;
     try {
-      await onsave({ ...card, name: card.name.trim(), due_day: card.due_day || 1, due_offset_days: card.due_offset_days || 20, annual_fee_month: annual ? card.annual_fee_month || 1 : null, annual_fee_day: annual ? card.annual_fee_day || 1 : null, annual_fee_amount: annual && card.annual_fee_amount ? card.annual_fee_amount : null });
+      await onsave({ ...card, region: card.region || null, timezone: card.timezone?.trim() || null, name: card.name.trim(), due_day: card.due_day || 1, due_offset_days: card.due_offset_days || 20, annual_fee_month: annual ? card.annual_fee_month || 1 : null, annual_fee_day: annual ? card.annual_fee_day || 1 : null, annual_fee_amount: annual && card.annual_fee_amount ? card.annual_fee_amount : null });
     } catch (e) { error = e instanceof Error ? e.message : '保存失败'; } finally { busy=false; }
   }
 </script>
@@ -18,8 +22,10 @@
   {#if error}<div class="alert error" role="alert">{error}</div>{/if}
   <div class="panel stack"><h2>卡片信息</h2><div class="form-grid">
     <label class="full">卡片名称<input bind:value={card.name} required maxlength="100" placeholder="例如：招商 Visa 日常卡" /></label>
-    <label>发卡行<input bind:value={card.issuer} maxlength="100" placeholder="招商银行" /></label>
-    <label>卡组织<input bind:value={card.network} maxlength="40" placeholder="Visa / Mastercard / 银联" /></label>
+<BrandPicker id="card-issuer" label="发卡行" bind:value={card.issuer} choices={bankChoices} color={card.color}/>
+<BrandPicker id="card-network" label="卡组织" kind="network" bind:value={card.network} choices={networks} color={card.color} maxLength={40}/>
+    <label>发行地区（可选）<select aria-label="发行地区（可选）" bind:value={card.region}><option value={null}>未指定</option>{#each regions as [code,name]}<option value={code}>{name}</option>{/each}{#if card.region&&!regions.some(r=>r[0]===card.region)}<option value={card.region}>{card.region}</option>{/if}</select></label>
+    <label>卡片时区（可选）<input aria-label="卡片时区（可选）" list="card-timezones" bind:value={card.timezone} placeholder={'跟随账户：'+($session?.user.timezone||'Asia/Shanghai')}/><datalist id="card-timezones">{#each timezones as tz}<option value={tz}></option>{/each}</datalist><small>留空始终跟随账户时区。填写后，提醒的发送时刻按该时区解释，自动处理夏令时。发行地区不会自动修改时区。</small></label>
     <label>卡号尾四位<input bind:value={card.last4} inputmode="numeric" pattern={"[0-9]{4}|"} maxlength="4" autocomplete="off" placeholder="1234" /><small>可留空；不要输入完整卡号。</small></label>
     <label>币种<input bind:value={card.currency} required pattern={"[A-Z]{3}"} maxlength="3" placeholder="CNY" /></label>
     <label>识别色<input type="color" bind:value={card.color} /></label>

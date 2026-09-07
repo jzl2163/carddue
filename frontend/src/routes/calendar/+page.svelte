@@ -11,7 +11,7 @@
   let feeds=$state<Feed[]|null>(null),cards=$state<Card[]>([]),editing=$state<FeedInput|null>(null),id=$state<string|null>(null),alarms=$state(''),busy=$state(false),error=$state('');
   async function load(){try{[feeds,cards]=await Promise.all([api<Feed[]>('/calendar/feeds'),api<Card[]>('/cards')]);}catch(e){error=e instanceof Error?e.message:'读取失败';}}
   onMount(()=>{void load();});
-  function edit(f?:Feed){id=f?.id||null;editing=structuredClone(f?.data||defaultFeed());alarms=editing.alarms_days_before?.join(', ')||'';}
+  function edit(f?:Feed){id=f?.id||null;editing=$state.snapshot(f?.data||defaultFeed());alarms=editing.alarms_days_before?.join(', ')||'';}
   function toggle(kind:'kinds'|'card_ids',value:string){if(!editing)return;const a=editing[kind]||[];editing[kind]=a.includes(value)?a.filter(v=>v!==value):[...a,value];}
   async function save(event:SubmitEvent){event.preventDefault();if(!editing)return;busy=true;try{const offsets=alarms.trim()?alarms.split(',').map(v=>Number(v.trim())):[];if(offsets.some(v=>!Number.isInteger(v)||v<0||v>30))throw new Error('日历提醒请填写 0–30 的整数，以英文逗号分隔。');await api(`/calendar/feeds${id?'/'+id:''}`,id?'PATCH':'POST',{...editing,alarms_days_before:[...new Set(offsets)]});editing=null;await load();notify('日历设置已保存。设备会在下一次拉取订阅时更新。');}catch(e){showError(e);}finally{busy=false;}}
   async function rotate(f:Feed){if(!confirm('重置后，旧订阅链接将立即失效。所有设备都需要添加新链接，是否继续？'))return;try{await api(`/calendar/feeds/${f.id}/rotate-token`,'POST');await load();notify('旧链接已撤销，请更新设备上的订阅。');}catch(e){showError(e);}}
