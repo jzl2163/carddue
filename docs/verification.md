@@ -44,3 +44,9 @@ scripts/browser-features.mjs 在服务器使用现有 Playwright 依赖，经回
 已验证镜像：sha256:7a252265ea450ffedba3c86665d2e3d3a15a10e646315cb18204354af27c6bf8。
 详细日志留在 Oracle 的 /opt/carddue-next/feature-rust.log、feature-frontend.log、feature-image.log、feature-browser.log。
 本机没有安装任何项目依赖。真实推送目的端、完整浏览器覆盖和备份恢复演练仍待验收；版本仍为候选版。
+
+## 2026-09-07 公网更新结果
+已将上述功能镜像部署到现有 CardDue Docker 服务并启用 ALLOW_REGISTRATION。上线前在服务器私有备份目录保存了最新数据库、自有配置和旧镜像，使用 pg_restore --list 确认备份可读（不等同于完整恢复演练）。
+命令行 HTTPS 验收通过：健康接口、注册状态、排行榜页面、现有测试账户登录与 Secure Cookie、鉴权排行榜 API、旧卡片的可选 region/timezone 字段兼容。测试会话已退出，没有修改线上卡片；SQL 迁移 1、2、3 均 success=true，应用和数据库均 healthy。
+隔离的 carddue-staging 容器、网络和虚构测试数据库卷，以及 carddue-verify 临时数据库和前端安装容器均已清理。生产数据库、源码、日志、可复用缓存和回滚备份保留。后续回归优先使用 API 与命令行，仅在交互问题需要时运行浏览器脚本。
+回滚注意：旧版 CardInput 拒绝未知字段；新卡含 region/timezone 后，不能仅切换旧镜像，应同时规划兼容数据处理或匹配的备份恢复。

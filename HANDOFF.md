@@ -32,3 +32,6 @@ sh scripts/verify-docker.sh
 
 ## 后续浏览器实测
 已在 Oracle 保持 carddue-browser 测试服务运行，并从本机 Chrome 经 SSH 隧道完成核心交互。修复五处响应式对象复制导致编辑器打不开的问题。详情及清理命令见 docs/browser-validation.md。该记录补充之前的 HTTP 验收，不表示全流程浏览器自动化已完成。
+
+## 当前上线状态
+2026-09-07：六项功能已更新到现有公网 Docker 服务，注册已启用；现有账户与卡片保留。上线后的 API 检查和三份迁移全部通过，具体证据见 docs/verification.md 最后章节。隔离测试数据库已清理。本机未安装项目依赖；后续测试优先 API/命令行，必要时才运行浏览器。
