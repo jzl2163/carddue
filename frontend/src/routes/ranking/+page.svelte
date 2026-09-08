@@ -5,9 +5,10 @@
   import BrandIcon from '$lib/components/BrandIcon.svelte';
   import Loading from '$lib/components/Loading.svelte';
   import Empty from '$lib/components/Empty.svelte';
-  type Entry={id:string;name:string;issuer:string;network:string;color:string;region:string|null;timezone:string;different_timezone:boolean;different_date:boolean;local_today:string;statement_date:string;due_date:string;days:number;longest_days:number};
-  let data=$state<{account_timezone:string;as_of:string;cards:Entry[]}|null>(null),error=$state(''),mode=$state<'days'|'longest_days'>('days');
-  const ranked=$derived([...(data?.cards||[])].sort((a,b)=>b[mode]-a[mode]||a.name.localeCompare(b.name)));
+  import type { Ranking } from '$lib/ranking';
+  import { rankCards } from '$lib/ranking';
+  let data=$state<Ranking|null>(null),error=$state(''),mode=$state<'days'|'longest_days'>('days');
+  const ranked=$derived(rankCards(data?.cards||[],mode));
   const maximum=$derived(Math.max(1,...ranked.map(c=>c[mode])));
   async function load(){try{data=await api('/cards/ranking');error='';}catch(e){error=e instanceof Error?e.message:'无法加载';}}
   onMount(()=>{void load();});
