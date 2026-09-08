@@ -21,7 +21,7 @@
   <div class="picker-anchor">
     <div class="picker-field">
       <BrandIcon name={value} {kind} {color}/>
-      <input bind:this={input} {id} role="combobox" aria-autocomplete="list" aria-expanded={open} aria-controls={open?id+'-options':undefined} aria-describedby={id+'-hint'} aria-activedescendant={open&&active>=0&&filtered[active]?id+'-option-'+active:undefined} bind:value maxlength={maxLength} autocomplete="off" placeholder={kind==='bank'?'输入自定义银行名称':'输入卡组织名称'} oninput={()=>{query=value;active=-1;}} onkeydown={keydown}/>
+      <input bind:this={input} {id} role="combobox" aria-autocomplete="list" aria-expanded={open} aria-controls={open?id+'-options':undefined} aria-describedby={id+'-hint'} aria-activedescendant={open&&active>=0&&filtered[active]?id+'-option-'+active:undefined} bind:value maxlength={maxLength} autocomplete="off" placeholder={kind==='bank'?'输入自定义银行名称':'输入卡组织名称'} oninput={(event)=>{query=event.currentTarget.value;active=-1;}} onkeydown={keydown}/>
       <button type="button" aria-label={(open?'收起':'展开')+label+'快捷选项'} aria-expanded={open} aria-controls={open?id+'-options':undefined} onclick={toggle}>⌄</button>
     </div>
     {#if open}
