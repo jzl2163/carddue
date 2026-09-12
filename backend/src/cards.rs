@@ -146,22 +146,31 @@ pub async fn cycles(
     auth: Auth,
     Path(card): Path<Uuid>,
 ) -> Result<Json<Vec<CycleView>>> {
-    let exists: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM cards WHERE id=$1 AND user_id=$2)")
+    let data: Option<sqlx::types::Json<CardInput>> =
+        sqlx::query_scalar("SELECT data FROM cards WHERE id=$1 AND user_id=$2")
             .bind(card)
             .bind(auth.user.id)
-            .fetch_one(&s.db)
+            .fetch_optional(&s.db)
             .await?;
-    if !exists {
-        return Err(AppError::missing());
-    }
-    Ok(Json(
-        sqlx::query_as::<_, CycleView>(planner::CYCLES)
-            .bind(auth.user.id)
-            .bind(card)
-            .fetch_all(&s.db)
-            .await?,
-    ))
+    let data = data.ok_or_else(AppError::missing)?;
+    let timezone = data.effective_timezone(&auth.user.timezone)?;
+    let end = crate::dates::month(chrono::Utc::now().with_timezone(&timezone).date_naive(), 13);
+    let mut rows = sqlx::query_as::<_, CycleView>(planner::CYCLES)
+        .bind(auth.user.id)
+        .bind(card)
+        .fetch_all(&s.db)
+        .await?;
+    // Retain previously entered information even outside the new rolling horizon.
+    rows.retain(|c| {
+        c.cycle_month < end
+            || c.statement_overridden
+            || c.due_overridden
+            || c.amount.is_some()
+            || c.minimum_payment.is_some()
+            || c.paid_at.is_some()
+            || !c.note.is_empty()
+    });
+    Ok(Json(rows))
 }
 pub async fn patch_cycle(
     State(s): State<AppState>,

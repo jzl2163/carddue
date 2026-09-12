@@ -221,3 +221,134 @@ mod interest_tests {
         assert_eq!(interest_estimate(&cycles, sh).unwrap().days, 50);
     }
 }
+
+/// Stable occurrence keys preserve existing monthly/yearly calendar identities.
+/// Quarterly and semiannual schedules are anchored to the start month.
+pub fn milestone_occurrences(
+    m: &crate::model::MilestoneInput,
+    start: NaiveDate,
+    end: NaiveDate,
+) -> Result<Vec<(String, NaiveDate)>> {
+    m.validate()?;
+    let mut result = Vec::new();
+    match m.recurrence.as_str() {
+        "one_time" => result.push(("once".into(), m.start_date)),
+        "custom_dates" => {
+            for date in &m.dates {
+                result.push((format!("date/{date}"), *date));
+            }
+        }
+        "yearly" => {
+            for year in start.year()..=end.year() {
+                result.push((
+                    year.to_string(),
+                    day(year, m.start_date.month(), m.start_date.day()),
+                ));
+            }
+        }
+        _ => {
+            let mut cursor = month(start, 0);
+            while cursor < end {
+                let elapsed = (cursor.year() - m.start_date.year()) * 12 + cursor.month() as i32
+                    - m.start_date.month() as i32;
+                let include = match m.recurrence.as_str() {
+                    "monthly" => true,
+                    "quarterly" => elapsed.rem_euclid(3) == 0,
+                    "semiannual" => elapsed.rem_euclid(6) == 0,
+                    "custom_months" => m.months.contains(&cursor.month()),
+                    _ => false,
+                };
+                if include {
+                    result.push((
+                        cursor.format("%Y-%m").to_string(),
+                        day(cursor.year(), cursor.month(), m.start_date.day()),
+                    ));
+                }
+                cursor = month(cursor, 1);
+            }
+        }
+    }
+    result.retain(|(_, d)| *d >= start && *d < end && *d >= m.start_date);
+    result.sort_by_key(|(_, d)| *d);
+    Ok(result)
+}
+
+#[cfg(test)]
+mod milestone_tests {
+    use super::*;
+    use serde_json::json;
+    fn milestone(mode: &str) -> crate::model::MilestoneInput {
+        serde_json::from_value(json!({"card_id":uuid::Uuid::nil(),"title":"Test","kind":"benefit","recurrence":mode,"start_date":"2027-08-31"})).unwrap()
+    }
+    #[test]
+    fn anchored_intervals_clamp_without_drift() {
+        let start = day(2027, 8, 1);
+        let end = day(2028, 9, 1);
+        for (mode, expected) in [
+            (
+                "quarterly",
+                vec![
+                    "2027-08-31",
+                    "2027-11-30",
+                    "2028-02-29",
+                    "2028-05-31",
+                    "2028-08-31",
+                ],
+            ),
+            ("semiannual", vec!["2027-08-31", "2028-02-29", "2028-08-31"]),
+        ] {
+            let rows = milestone_occurrences(&milestone(mode), start, end).unwrap();
+            assert_eq!(
+                rows.iter().map(|(_, d)| d.to_string()).collect::<Vec<_>>(),
+                expected
+            );
+        }
+    }
+    #[test]
+    fn custom_schedules_and_validation() {
+        let mut m = milestone("custom_months");
+        m.months = vec![2, 8, 11];
+        let rows = milestone_occurrences(&m, day(2027, 1, 1), day(2028, 3, 1)).unwrap();
+        assert_eq!(
+            rows.iter().map(|(_, d)| d.to_string()).collect::<Vec<_>>(),
+            vec!["2027-08-31", "2027-11-30", "2028-02-29"]
+        );
+        m.months = vec![2, 2];
+        assert!(m.validate().is_err());
+        m.months = vec![0];
+        assert!(m.validate().is_err());
+        m.months.clear();
+        assert!(m.validate().is_err());
+        m.recurrence = "custom_dates".into();
+        m.dates = vec![day(2028, 2, 29), day(2027, 9, 4), day(2029, 1, 1)];
+        let rows = milestone_occurrences(&m, day(2027, 9, 1), day(2029, 1, 1)).unwrap();
+        assert_eq!(
+            rows,
+            vec![
+                ("date/2027-09-04".into(), day(2027, 9, 4)),
+                ("date/2028-02-29".into(), day(2028, 2, 29))
+            ]
+        );
+        m.dates.push(day(2027, 9, 4));
+        assert!(m.validate().is_err());
+        m.dates = vec![day(2027, 1, 1)];
+        assert!(m.validate().is_err());
+        m.dates = vec![day(2201, 1, 1)];
+        assert!(m.validate().is_err());
+    }
+    #[test]
+    fn old_payload_and_keys_remain_compatible() {
+        let m = milestone("monthly");
+        assert!(m.validate().is_ok());
+        assert_eq!(
+            milestone_occurrences(&m, day(2027, 8, 1), day(2027, 9, 1)).unwrap()[0].0,
+            "2027-08"
+        );
+        assert_eq!(
+            milestone_occurrences(&milestone("yearly"), day(2027, 8, 1), day(2028, 1, 1)).unwrap()
+                [0]
+            .0,
+            "2027"
+        );
+    }
+}

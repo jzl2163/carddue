@@ -50,8 +50,8 @@ pub async fn reconcile(conn: &mut PgConnection, user: Uuid, cfg: &Config) -> Res
         let today = now.with_timezone(&card_tz).date_naive();
         let current = dates::month(today, 0);
         let start = dates::month(today, -3);
-        let end = dates::month(today, 25);
-        for offset in -3..=24 {
+        let end = dates::month(today, 13);
+        for offset in -3..=12 {
             let m = dates::month(today, offset);
             let id = stable(&format!("{card}/cycle/{m}"));
             let (statement, due) = dates::cycle_dates(&c, m)?;
@@ -157,29 +157,8 @@ pub async fn reconcile(conn: &mut PgConnection, user: Uuid, cfg: &Config) -> Res
             .effective_timezone(&timezone)?;
         let today = now.with_timezone(&card_tz).date_naive();
         let start = dates::month(today, -3);
-        let end = dates::month(today, 25);
-        let mut occurrences = Vec::new();
-        match m.recurrence.as_str() {
-            "one_time" => occurrences.push(("once".to_string(), m.start_date)),
-            "monthly" => {
-                for offset in -3..=24 {
-                    let month = dates::month(today, offset);
-                    occurrences.push((
-                        month.format("%Y-%m").to_string(),
-                        dates::day(month.year(), month.month(), m.start_date.day()),
-                    ));
-                }
-            }
-            "yearly" => {
-                for year in start.year()..=end.year() {
-                    occurrences.push((
-                        year.to_string(),
-                        dates::day(year, m.start_date.month(), m.start_date.day()),
-                    ));
-                }
-            }
-            _ => return Err(AppError::internal()),
-        }
+        let end = dates::month(today, 13);
+        let occurrences = dates::milestone_occurrences(&m, start, end)?;
         for (key, date) in occurrences {
             if date < m.start_date || date < start || date >= end {
                 continue;

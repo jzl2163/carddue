@@ -165,16 +165,59 @@ pub struct MilestoneInput {
     pub kind: String,
     pub recurrence: String,
     pub start_date: NaiveDate,
+    #[serde(default)]
+    pub months: Vec<u32>,
+    #[serde(default)]
+    pub dates: Vec<NaiveDate>,
 }
 impl MilestoneInput {
     pub fn validate(&self) -> Result<()> {
         text(&self.title, 1, 120)?;
         if !["annual_fee", "benefit", "custom"].contains(&self.kind.as_str())
-            || !["one_time", "monthly", "yearly"].contains(&self.recurrence.as_str())
+            || ![
+                "one_time",
+                "monthly",
+                "yearly",
+                "quarterly",
+                "semiannual",
+                "custom_months",
+                "custom_dates",
+            ]
+            .contains(&self.recurrence.as_str())
         {
             return Err(AppError::bad("Invalid milestone type or recurrence"));
         }
-        date_range(self.start_date)
+        date_range(self.start_date)?;
+        let unique_months: std::collections::HashSet<_> = self.months.iter().collect();
+        let unique_dates: std::collections::HashSet<_> = self.dates.iter().collect();
+        if self.recurrence == "custom_months" {
+            if self.months.is_empty()
+                || self.months.len() > 12
+                || unique_months.len() != self.months.len()
+                || self.months.iter().any(|m| !(1..=12).contains(m))
+            {
+                return Err(AppError::bad("Select unique months between 1 and 12"));
+            }
+        } else if !self.months.is_empty() {
+            return Err(AppError::bad("Months only apply to custom_months"));
+        }
+        if self.recurrence == "custom_dates" {
+            if self.dates.is_empty()
+                || self.dates.len() > 100
+                || unique_dates.len() != self.dates.len()
+            {
+                return Err(AppError::bad("Provide 1 to 100 unique dates"));
+            }
+            for date in &self.dates {
+                date_range(*date)?;
+                if *date < self.start_date {
+                    return Err(AppError::bad("Custom dates cannot precede the start date"));
+                }
+            }
+        } else if !self.dates.is_empty() {
+            return Err(AppError::bad("Dates only apply to custom_dates"));
+        }
+        Ok(())
     }
 }
 #[derive(Clone, Serialize, Deserialize, ToSchema)]
