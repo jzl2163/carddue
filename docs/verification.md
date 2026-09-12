@@ -50,3 +50,6 @@ scripts/browser-features.mjs 在服务器使用现有 Playwright 依赖，经回
 命令行 HTTPS 验收通过：健康接口、注册状态、排行榜页面、现有测试账户登录与 Secure Cookie、鉴权排行榜 API、旧卡片的可选 region/timezone 字段兼容。测试会话已退出，没有修改线上卡片；SQL 迁移 1、2、3 均 success=true，应用和数据库均 healthy。
 隔离的 carddue-staging 容器、网络和虚构测试数据库卷，以及 carddue-verify 临时数据库和前端安装容器均已清理。生产数据库、源码、日志、可复用缓存和回滚备份保留。后续回归优先使用 API 与命令行，仅在交互问题需要时运行浏览器脚本。
 回滚注意：旧版 CardInput 拒绝未知字段；新卡含 region/timezone 后，不能仅切换旧镜像，应同时规划兼容数据处理或匹配的备份恢复。
+
+## 总览排行模块验证
+RankingPreview 复用既有排行榜 API，按今天消费免息期排序取前三，独立处理加载/空态/错误；共享类型保持与完整排行一致。Oracle Docker 构建完成，svelte-check 为 0 errors / 0 warnings，静态构建与资源预算通过。镜像 sha256:681d4e69a452a90bd4f20929a97c7c67cc1a56109184716145e58eb5f0ca6ab2。本轮采用源码检查、构建和部署接口检查，没有新增浏览器操作或镜像实现逻辑的单元测试。

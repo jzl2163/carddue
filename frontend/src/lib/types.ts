@@ -13,6 +13,12 @@ export type Resource<T> = { id: string; data: T };
 export type Feed = Resource<FeedInput> & { url: string; last_accessed_at: string | null };
 export interface Upcoming { timezone: string; local_today: string; days_until: number; id: string; card_id: string; cycle_id: string | null; kind: string; title: string; date: string; paid: boolean; card_name: string; color: string; amount: string | null }
 export interface Dashboard { today: string; timezone: string; events: Upcoming[] }
+export interface RankingEntry {
+  id: string; name: string; issuer: string; network: string; color: string;
+  region: string | null; timezone: string; different_timezone: boolean; different_date: boolean;
+  local_today: string; statement_date: string; due_date: string; days: number; longest_days: number;
+}
+export interface RankingData { account_timezone: string; as_of: string; cards: RankingEntry[] }
 export interface Session { user: User; csrf_token: string }
 export interface Rendered { title: string; body: string; html: string; url: string; group: string; sound: string; level: string }
 export interface Delivery { id: string; status: string; scheduled_at: string; sent_at: string | null; attempt_count: number; error: string | null; connection: string; kind: string; context: { card: { name: string }; event: { label: string; date: string } } }
